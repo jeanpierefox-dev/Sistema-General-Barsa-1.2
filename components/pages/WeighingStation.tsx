@@ -191,102 +191,109 @@ const WeighingStation: React.FC = () => {
       const navy: [number, number, number] = [23, 37, 84];
       const gray: [number, number, number] = [100, 100, 100];
 
-      // Membrete Centrado
-      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 10, 24, 24); } catch {} }
+      // Cabecera Centrada Total
+      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 12, 24, 24); } catch {} }
       doc.setFont("helvetica", "bold").setFontSize(18).setTextColor(navy[0], navy[1], navy[2]);
-      doc.text(config.companyName.toUpperCase(), 105, 42, { align: 'center' });
+      doc.text(config.companyName.toUpperCase(), 105, 44, { align: 'center' });
       doc.setFontSize(9).setTextColor(gray[0], gray[1], gray[2]).setFont("helvetica", "normal");
-      doc.text("SISTEMA DE CONTROL AVÍCOLA PROFESIONAL", 105, 47, { align: 'center' });
-      doc.text(`Campaña: ${currentBatch?.name || 'Venta Directa'} | Ref: #${order.id.slice(-6)}`, 105, 52, { align: 'center' });
+      doc.text("REPORTE DETALLADO DE OPERACIÓN AVÍCOLA", 105, 49, { align: 'center' });
+      doc.text(`Campaña: ${currentBatch?.name || 'Venta Directa'} | ID: #${order.id.slice(-6)}`, 105, 54, { align: 'center' });
 
-      doc.setDrawColor(220).line(15, 58, 195, 58);
+      doc.setDrawColor(220).line(15, 60, 195, 60);
 
-      // Info Cliente (Layout Horizontal)
+      // Info Cliente
       doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(0);
-      doc.text("INFORMACIÓN DE DESPACHO", 15, 66);
+      doc.text("DATOS DEL DESPACHO", 15, 68);
       doc.setFont("helvetica", "normal").setFontSize(8.5);
-      doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 15, 72);
-      doc.text(`FECHA: ${new Date().toLocaleString()}`, 15, 77);
-      doc.text(`CONDICIÓN: ${order.paymentMethod || 'NO DEFINIDO'}`, 140, 72);
-      doc.text(`PRECIO x KG: S/. ${order.pricePerKg.toFixed(2)}`, 140, 77);
+      doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 15, 74);
+      doc.text(`FECHA EMISIÓN: ${new Date().toLocaleString()}`, 15, 79);
+      doc.text(`CONDICIÓN: ${order.paymentMethod || 'PENDIENTE'}`, 130, 74);
+      doc.text(`PRECIO ACORDADO: S/. ${order.pricePerKg.toFixed(2)}`, 130, 79);
 
-      // 1. CUADRO RESUMEN CONSOLIDADO (PRIORITARIO)
-      const summaryY = 85;
+      // 1. RESUMEN CONSOLIDADO (CUADRO PRINCIPAL ARRIBA)
+      const summaryY = 88;
       autoTable(doc, {
           startY: summaryY,
           theme: 'grid',
-          headStyles: { fillColor: navy, fontSize: 8.5, halign: 'center' },
+          headStyles: { fillColor: navy, fontSize: 9, halign: 'center', cellPadding: 2 },
           styles: { fontSize: 8.5, halign: 'center', cellPadding: 2 },
-          head: [['CONCEPTO', 'UNIDADES', 'PESO TOTAL (KG)']],
+          head: [['CONCEPTO OPERATIVO', 'UNIDADES', 'PESO TOTAL (KG)']],
           body: [
-              ['PESO BRUTO (LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
-              ['TARA (VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
+              ['PESO BRUTO (JABAS LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
+              ['TARA (JABAS VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
               ['MERMA / MUERTOS', totals.mortCount, totals.totalMortWeight.toFixed(2)],
-              [{ content: 'PESO NETO FACTURABLE', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }]
+              [{ content: 'TOTAL NETO FACTURABLE', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
+              [{ content: 'CANTIDAD AVES NETAS', styles: { fontStyle: 'bold' } }, { content: totals.totalBirdsFinal.toString(), styles: { fontStyle: 'bold' } }, { content: 'Prom: ' + totals.avgWeight.toFixed(3) + ' kg', styles: { fontSize: 7 } }]
           ],
           margin: { left: 15, right: 15 }
       });
 
-      // 2. DETALLE DE PESAJES OPTIMIZADO (Lado a Lado para ahorrar páginas)
+      // 2. MATRIZ DE AUDITORÍA UNIFICADA (DETALLE COMPACTO)
       const detailY = (doc as any).lastAutoTable.finalY + 10;
-      doc.setFont("helvetica", "bold").setFontSize(10).text("DESGLOSE DE PESAJES POR CATEGORÍA", 15, detailY);
+      doc.setFont("helvetica", "bold").setFontSize(10).text("DETALLE DE AUDITORÍA (PESADAS INDIVIDUALES)", 15, detailY);
       
-      const colWidth = 55; // 3 columnas de 55mm = 165mm. Márgenes de 15mm. Total 195mm.
-      const startX = 15;
-      const gap = 5;
+      const full = order.records.filter(r => r.type === 'FULL');
+      const empty = order.records.filter(r => r.type === 'EMPTY');
+      const mort = order.records.filter(r => r.type === 'MORTALITY');
+      const maxRows = Math.max(full.length, empty.length, mort.length);
 
-      const renderCompactTable = (type: string, title: string, xPos: number, headerColor: [number, number, number]) => {
-          const filtered = order.records.filter(r => r.type === type);
-          autoTable(doc, {
-              startY: detailY + 4,
-              theme: 'grid',
-              headStyles: { fillColor: headerColor, fontSize: 7, halign: 'center', cellPadding: 1 },
-              styles: { fontSize: 7, halign: 'center', cellPadding: 1 },
-              head: [[title, 'UNDS', 'KG']],
-              body: filtered.map((r, i) => [`#${filtered.length - i}`, r.quantity, r.weight.toFixed(2)]),
-              margin: { left: xPos },
-              tableWidth: colWidth
-          });
-          return (doc as any).lastAutoTable.finalY;
-      };
+      const auditRows = [];
+      for (let i = 0; i < maxRows; i++) {
+          auditRows.push([
+              full[i] ? `${full.length - i}` : '-',
+              full[i] ? full[i].weight.toFixed(2) : '-',
+              empty[i] ? `${empty.length - i}` : '-',
+              empty[i] ? empty[i].weight.toFixed(2) : '-',
+              mort[i] ? `${mort.length - i}` : '-',
+              mort[i] ? mort[i].weight.toFixed(2) : '-'
+          ]);
+      }
 
-      const y1 = renderCompactTable('FULL', 'LLENAS', startX, [23, 37, 84]);
-      const y2 = renderCompactTable('EMPTY', 'TARA', startX + colWidth + gap, [194, 65, 12]);
-      const y3 = renderCompactTable('MORTALITY', 'MERMA', startX + (colWidth + gap) * 2, [185, 28, 28]);
+      autoTable(doc, {
+          startY: detailY + 4,
+          theme: 'striped',
+          headStyles: { fillColor: [60, 60, 60], fontSize: 7, halign: 'center', cellPadding: 1 },
+          styles: { fontSize: 7, halign: 'center', cellPadding: 1 },
+          head: [['# LLENA', 'PESO KG', '# TARA', 'PESO KG', '# MERMA', 'PESO KG']],
+          body: auditRows,
+          margin: { left: 15, right: 15 },
+          columnStyles: {
+              0: { fillColor: [240, 245, 255] }, 1: { fontStyle: 'bold' },
+              2: { fillColor: [255, 245, 235] }, 3: { fontStyle: 'bold' },
+              4: { fillColor: [255, 235, 235] }, 5: { fontStyle: 'bold' }
+          }
+      });
 
-      const maxFinalY = Math.max(y1, y2, y3);
-
-      // Firmas
-      const footerY = Math.min(270, maxFinalY + 25);
-      doc.setDrawColor(200).line(30, footerY, 80, footerY).line(130, footerY, 180, footerY);
+      // Firmas al final del documento
+      const finalY = Math.min(270, (doc as any).lastAutoTable.finalY + 25);
+      doc.setDrawColor(200).line(30, finalY, 80, finalY).line(130, finalY, 180, finalY);
       doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(gray[0], gray[1], gray[2]);
-      doc.text("FIRMA RESPONSABLE", 55, footerY + 5, { align: 'center' });
-      doc.text("FIRMA CLIENTE", 155, footerY + 5, { align: 'center' });
+      doc.text("FIRMA DESPACHO", 55, finalY + 5, { align: 'center' });
+      doc.text("FIRMA CLIENTE", 155, finalY + 5, { align: 'center' });
 
-      doc.save(`Reporte_Final_${order.clientName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Reporte_Corporativo_${order.clientName.replace(/\s+/g, '_')}.pdf`);
   };
 
   const generateCheckoutTicket = (order: ClientOrder) => {
     const totals = getTotals(order);
-    const doc = new jsPDF({ unit: 'mm', format: [80, 150] });
-    const navy: [number, number, number] = [23, 37, 84];
+    const doc = new jsPDF({ unit: 'mm', format: [80, 140] }); // Formato más compacto
     let y = 8;
     
     if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 32, y, 16, 16); y += 18; } catch {} }
     doc.setFontSize(9).setFont("helvetica", "bold").text(config.companyName.toUpperCase(), 40, y, { align: 'center' });
     y += 4;
-    doc.setFontSize(7).setFont("helvetica", "normal").text("COMPROBANTE DE DESPACHO", 40, y, { align: 'center' });
+    doc.setFontSize(7).setFont("helvetica", "normal").text("COMPROBANTE DE VENTA", 40, y, { align: 'center' });
     y += 6;
 
     doc.setFontSize(7).setFont("helvetica", "bold");
     doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 5, y); y += 3.5;
     doc.setFont("helvetica", "normal");
-    doc.text(`REF: #${order.id.slice(-6)} | FECHA: ${new Date().toLocaleDateString()}`, 5, y); y += 3.5;
+    doc.text(`ID: #${order.id.slice(-6)} | ${new Date().toLocaleDateString()}`, 5, y); y += 4;
     
     autoTable(doc, {
         startY: y,
         theme: 'grid',
-        headStyles: { fillColor: [50, 50, 50], fontSize: 6.5, halign: 'center', cellPadding: 1 },
+        headStyles: { fillColor: [40, 40, 40], fontSize: 6.5, halign: 'center', cellPadding: 1 },
         styles: { fontSize: 6.5, halign: 'center', cellPadding: 1 },
         head: [['ITEM', 'CANT', 'PESO KG']],
         body: [
@@ -301,8 +308,8 @@ const WeighingStation: React.FC = () => {
     y = (doc as any).lastAutoTable.finalY + 6;
     doc.setFontSize(7.5).setFont("helvetica", "bold");
     doc.text(`AVES NETAS: ${totals.totalBirdsFinal}`, 5, y); y += 4;
-    doc.text(`PRECIO KG: S/. ${order.pricePerKg.toFixed(2)}`, 5, y); y += 5;
-    doc.setFontSize(9).text(`TOTAL: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
+    doc.text(`PRECIO KILO: S/. ${order.pricePerKg.toFixed(2)}`, 5, y); y += 5;
+    doc.setFontSize(9).text(`TOTAL PAGAR: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
     
     doc.save(`Ticket_${order.clientName}.pdf`);
   };
@@ -363,14 +370,15 @@ const WeighingStation: React.FC = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Tarjeta Nuevo Registro Compacta */}
           <button 
             onClick={() => { setEditingOrder(null); setShowClientModal(true); }} 
-            className="flex flex-col items-center justify-center min-h-[350px] bg-white border-4 border-dashed border-slate-200 rounded-[2.5rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
+            className="flex flex-col items-center justify-center min-h-[320px] bg-white border-4 border-dashed border-slate-200 rounded-[2.5rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
           >
-            <div className="bg-blue-50 p-5 rounded-full shadow-inner mb-4 group-hover:scale-110 transition-transform">
-                <Plus size={40} className="text-blue-600" />
+            <div className="bg-blue-50 p-4 rounded-full shadow-inner mb-4 group-hover:scale-110 transition-transform">
+                <Plus size={36} className="text-blue-600" />
             </div>
-            <span className="font-black text-slate-500 uppercase text-[10px] tracking-widest text-center px-4">Nuevo Cliente</span>
+            <span className="font-black text-slate-500 uppercase text-[9px] tracking-widest text-center px-4 leading-relaxed">Añadir Nuevo Cliente<br/>al Proceso de Venta</span>
           </button>
           
           {orders.map(order => {
@@ -379,7 +387,7 @@ const WeighingStation: React.FC = () => {
               const percent = order.targetCrates > 0 ? Math.min((oTotals.fullUnitsCount / order.targetCrates) * 100, 100) : 0;
               
               return (
-                  <div key={order.id} className={`bg-white rounded-[2rem] shadow-lg border-2 transition-all duration-300 overflow-hidden flex flex-col min-h-[350px] relative cursor-pointer ${oClosed ? 'opacity-80' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
+                  <div key={order.id} className={`bg-white rounded-[2rem] shadow-lg border-2 transition-all duration-300 overflow-hidden flex flex-col min-h-[320px] relative cursor-pointer ${oClosed ? 'opacity-80' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
                       <div className="bg-slate-900 p-5 flex justify-between items-start">
                          <div className="flex items-center space-x-3 overflow-hidden">
                              <div className={`p-2.5 rounded-xl text-white shadow-lg shrink-0 ${oClosed ? 'bg-slate-700' : 'bg-blue-600'}`}>
@@ -403,7 +411,7 @@ const WeighingStation: React.FC = () => {
                                       <span className="text-slate-500">Jabas</span>
                                       <span className="text-blue-600 font-black">{oTotals.fullUnitsCount} / {order.targetCrates || '∞'}</span>
                                   </div>
-                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-50 shadow-inner">
+                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-50">
                                       <div className={`h-full rounded-full bg-blue-500 transition-all duration-700`} style={{ width: `${percent}%` }}></div>
                                   </div>
                               </div>
@@ -559,21 +567,22 @@ const WeighingStation: React.FC = () => {
                       <button onClick={() => setShowDetailModal(false)} className="p-2 hover:bg-slate-800 rounded-xl transition-colors"><X/></button>
                   </div>
                   <div className="p-6 overflow-y-auto space-y-6">
+                      {/* Cuadros Consolidados en UI */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="bg-blue-50 p-6 rounded-[2rem] border-2 border-blue-200 text-center shadow-inner">
                               <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><Package size={14}/> Solo Llenas</p>
                               <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalFullWeight.toFixed(2)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG CONSOLIDADOS • {totals.fullUnitsCount} UND</p>
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG TOTAL • {totals.fullUnitsCount} UND</p>
                           </div>
                           <div className="bg-orange-50 p-6 rounded-[2rem] border-2 border-orange-200 text-center shadow-inner">
                               <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><PackageOpen size={14}/> Solo Vacías</p>
                               <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalEmptyWeight.toFixed(2)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG CONSOLIDADOS • {totals.emptyUnitsCount} UND</p>
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG TOTAL • {totals.emptyUnitsCount} UND</p>
                           </div>
                           <div className="bg-red-50 p-6 rounded-[2rem] border-2 border-red-200 text-center shadow-inner">
                               <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><AlertOctagon size={14}/> Solo Merma</p>
                               <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalMortWeight.toFixed(2)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG CONSOLIDADOS • {totals.mortCount} UND</p>
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG TOTAL • {totals.mortCount} UND</p>
                           </div>
                       </div>
 
@@ -604,7 +613,7 @@ const WeighingStation: React.FC = () => {
                                         </div>
                                     ))}
                                     {activeOrder.records.filter(r => r.type === t.t).length === 0 && (
-                                        <div className="h-full flex items-center justify-center text-[8px] text-slate-300 font-black uppercase">Vacío</div>
+                                        <div className="h-full flex items-center justify-center text-[8px] text-slate-300 font-black uppercase">Sin registros</div>
                                     )}
                                 </div>
                             </div>

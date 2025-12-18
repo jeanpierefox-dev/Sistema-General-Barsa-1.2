@@ -482,6 +482,69 @@ const WeighingStation: React.FC = () => {
           ))}
       </div>
 
+      {showDetailModal && (
+          <div className="fixed inset-0 bg-blue-950/80 flex items-center justify-center p-4 z-[60] backdrop-blur-md">
+              <div className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+                  <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                          <ListChecks className="text-blue-400" />
+                          <h3 className="font-black text-sm uppercase tracking-widest">Resumen de Pesaje - {activeOrder.clientName}</h3>
+                      </div>
+                      <button onClick={() => setShowDetailModal(false)} className="p-2 hover:bg-slate-800 rounded-xl transition-colors"><X/></button>
+                  </div>
+                  <div className="p-6 overflow-y-auto space-y-6">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                              <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Total Llenas</p>
+                              <p className="font-black text-xl text-slate-900">{totals.fullUnitsCount} UND</p>
+                          </div>
+                          <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100">
+                              <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-1">Total Tara</p>
+                              <p className="font-black text-xl text-slate-900">{totals.emptyUnitsCount} UND</p>
+                          </div>
+                          <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                              <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">Peso Neto</p>
+                              <p className="font-black text-xl text-slate-900">{totals.netWeight.toFixed(2)} KG</p>
+                          </div>
+                          <div className="bg-yellow-50 p-4 rounded-2xl border border-yellow-100">
+                              <p className="text-[9px] font-black text-yellow-600 uppercase tracking-widest mb-1">Aves Netas</p>
+                              <p className="font-black text-xl text-slate-900">{totals.totalBirdsFinal}</p>
+                          </div>
+                      </div>
+
+                      <div className="space-y-4">
+                          <h4 className="font-black text-[10px] text-slate-400 uppercase tracking-widest border-b pb-2">Historial de Registros</h4>
+                          <div className="space-y-2">
+                              {activeOrder.records.map((r, idx) => (
+                                  <div key={r.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                      <div className="flex items-center gap-4">
+                                          <span className="text-[10px] font-black text-slate-300">#{activeOrder.records.length - idx}</span>
+                                          <div className={`w-2 h-2 rounded-full ${r.type === 'FULL' ? 'bg-blue-500' : r.type === 'EMPTY' ? 'bg-orange-500' : 'bg-red-500'}`}></div>
+                                          <div>
+                                              <p className="text-xs font-black text-slate-800 uppercase">{r.type === 'FULL' ? 'LLENA' : r.type === 'EMPTY' ? 'VACÍA' : 'MERMA'}</p>
+                                              <p className="text-[8px] text-slate-400 font-bold">{new Date(r.timestamp).toLocaleTimeString()}</p>
+                                          </div>
+                                      </div>
+                                      <div className="text-right">
+                                          <p className="text-sm font-black text-slate-900">{r.weight.toFixed(2)} KG</p>
+                                          <p className="text-[9px] text-slate-500 font-bold uppercase">{r.quantity} Unidades</p>
+                                      </div>
+                                  </div>
+                              ))}
+                              {activeOrder.records.length === 0 && (
+                                  <div className="py-10 text-center text-slate-300 font-black uppercase text-xs tracking-widest">No hay registros aún</div>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+                  <div className="p-6 bg-slate-50 border-t flex gap-3">
+                      <button onClick={() => setShowDetailModal(false)} className="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Cerrar Detalles</button>
+                      <button onClick={() => generateCheckoutTicket(activeOrder)} className="px-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-100 transition-colors"><Printer size={20}/></button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {showCheckoutModal && (
           <div className="fixed inset-0 bg-blue-950/80 flex items-center justify-center p-4 z-50 backdrop-blur-md">
               <div className="bg-white rounded-[2.5rem] w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in flex flex-col">

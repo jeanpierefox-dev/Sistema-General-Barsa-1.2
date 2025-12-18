@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   GENERAL = 'GENERAL',
@@ -60,6 +61,7 @@ export interface Batch {
 }
 
 export interface AppConfig {
+  appName: string;
   companyName: string;
   logoUrl: string;
   printerConnected: boolean;

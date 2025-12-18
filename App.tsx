@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { User, UserRole, AppConfig } from './types';
@@ -55,7 +56,9 @@ const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?
               </button>
             )}
             <div className="flex flex-col">
-              <h1 className="text-lg font-black tracking-tight uppercase leading-none">{title || 'SISTEMA BARSA'}</h1>
+              <h1 className="text-lg font-black tracking-tight uppercase leading-none">
+                {title || config.appName || 'SISTEMA BARSA'}
+              </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 {isCloudActive ? (
                   <div className="flex items-center gap-1 group cursor-help">
@@ -78,7 +81,6 @@ const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?
               <p className="text-xs font-bold text-white leading-none">{user.name}</p>
             </div>
 
-            {/* El botón de actualizar solo aparece para el Administrador */}
             {user.role === UserRole.ADMIN && (
               <button
                 onClick={handleUpdate}

@@ -37,14 +37,17 @@ const sanitizeForFirebase = (data: any) => {
 
 // --- Lógica de Conexión ---
 
+/**
+ * Inicializa Firebase con validaciones estrictas.
+ */
 const initFirebase = async (config: AppConfig) => {
-    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return null;
+    const fc = config.firebaseConfig;
     
-    // Validación básica de URL para evitar errores comunes
-    if (config.firebaseConfig.databaseURL && !config.firebaseConfig.databaseURL.startsWith('https://')) {
-        console.error("URL de base de datos inválida");
-        return null;
-    }
+    // Validaciones preventivas
+    if (!fc.apiKey || fc.apiKey.trim() === '') throw new Error("Falta la API Key de Firebase.");
+    if (!fc.databaseURL || fc.databaseURL.trim() === '') throw new Error("Falta la URL de la base de datos.");
+    if (!fc.databaseURL.startsWith('https://')) throw new Error("La URL de la base de datos debe empezar con https://");
+    if (!fc.projectId || fc.projectId.trim() === '') throw new Error("Falta el Project ID.");
 
     try {
         const apps = getApps();
@@ -54,19 +57,29 @@ const initFirebase = async (config: AppConfig) => {
             }
         }
         
-        firebaseApp = initializeApp(config.firebaseConfig);
+        // Limpiamos espacios en blanco de la configuración antes de iniciar
+        const cleanConfig = {
+            ...fc,
+            apiKey: fc.apiKey.trim(),
+            databaseURL: fc.databaseURL.trim(),
+            projectId: fc.projectId.trim(),
+            appId: fc.appId.trim()
+        };
+
+        firebaseApp = initializeApp(cleanConfig);
         firebaseDb = getDatabase(firebaseApp);
         setupListeners();
         return firebaseDb;
-    } catch (e) {
-        console.error("Error al inicializar Firebase:", e);
-        return null;
+    } catch (e: any) {
+        console.error("Firebase Init Error:", e);
+        throw new Error("Fallo crítico al crear la instancia: " + (e.message || "Verifique sus credenciales."));
     }
 };
 
 const ensureConnected = async () => {
     if (firebaseDb) return firebaseDb;
     const config = getConfig();
+    if (!config.cloudEnabled) return null;
     return await initFirebase(config);
 };
 
@@ -98,38 +111,37 @@ const setupListeners = () => {
     });
 };
 
-export const testCloudConnection = async (): Promise<{success: boolean, message: string}> => {
-    const config = getConfig();
-    if (!config.firebaseConfig.databaseURL || !config.firebaseConfig.apiKey) {
-        return { success: false, message: "Faltan datos de configuración (API Key o URL)." };
-    }
+/**
+ * Prueba la conexión usando una configuración específica (útil para pruebas antes de guardar).
+ */
+export const testCloudConnection = async (tempConfig?: AppConfig): Promise<{success: boolean, message: string}> => {
+    const config = tempConfig || getConfig();
     
     try {
-        const db = await ensureConnected();
-        if (!db) throw new Error("No se pudo crear la instancia de base de datos.");
+        const db = await initFirebase(config);
+        if (!db) throw new Error("No se pudo obtener la referencia de la base de datos.");
         
-        // Intentamos leer una ruta de sistema para probar conexión y reglas
+        // Verificamos conexión real con el servidor
         const connectedRef = ref(db, '.info/connected');
         const snapshot = await get(connectedRef);
         
-        if (snapshot.exists()) {
-            return { success: true, message: "¡Conexión exitosa! El sistema está vinculado a Firebase." };
+        if (snapshot.val() === true) {
+            return { success: true, message: "¡CONEXIÓN EXITOSA! El sistema se comunicó con Firebase correctamente." };
         } else {
-            return { success: false, message: "Conectado, pero no hay respuesta del servidor. Revise su conexión a Internet." };
+            return { success: false, message: "Instancia creada, pero el servidor no responde. Revise su Internet." };
         }
     } catch (e: any) {
-        console.error("Test Error:", e);
-        if (e.message?.includes('permission_denied')) {
-            return { success: false, message: "ERROR DE PERMISOS: Verifique que las Reglas (Rules) de su Realtime Database en Firebase sean true." };
-        }
-        return { success: false, message: "Error: " + (e.message || "No se pudo conectar. Verifique que la URL de la base de datos sea correcta.") };
+        console.error("Test Connection Fail:", e);
+        let msg = e.message || "Error desconocido.";
+        if (msg.includes('permission_denied')) msg = "PERMISOS DENEGADOS: Cambie las 'Rules' de su Realtime Database a true.";
+        return { success: false, message: msg };
     }
 };
 
 export const forceSyncUsers = async () => {
-    const db = await ensureConnected();
-    if (!db) return false;
     try {
+        const db = await ensureConnected();
+        if (!db) return false;
         const snapshot = await get(ref(db, 'data/users'));
         const data = snapshot.val();
         if (data) {
@@ -145,7 +157,7 @@ export const forceSyncUsers = async () => {
 
 export const uploadLocalDataToCloud = async () => {
     const db = await ensureConnected();
-    if (!db) throw new Error("No hay conexión con la nube.");
+    if (!db) throw new Error("La nube no está activa en la configuración.");
     try {
         const users = sanitizeForFirebase(getUsers());
         const batches = sanitizeForFirebase(getBatches());
@@ -156,7 +168,7 @@ export const uploadLocalDataToCloud = async () => {
         return true;
     } catch (e: any) {
         if (e.message?.includes('permission_denied')) {
-            throw new Error("REGLAS DE FIREBASE INCORRECTAS: Debe poner las Rules en 'true'.");
+            throw new Error("REGLAS DE FIREBASE INCORRECTAS. Deben estar en true.");
         }
         throw e;
     }
@@ -174,16 +186,16 @@ export const formatCloudData = async () => {
 };
 
 const pushToCloud = async (path: string, data: any) => {
-    const db = await ensureConnected();
-    if (!db) return;
     try {
+        const db = await ensureConnected();
+        if (!db) return;
         await set(ref(db, `data/${path}`), sanitizeForFirebase(data));
     } catch (e) {
         console.error("Cloud Push Error:", e);
     }
 };
 
-// --- Métodos Exportados ---
+// --- Seed Data & Methods ---
 
 const seedData = () => {
   const existingUsers = safeParse(KEYS.USERS, []);
@@ -197,9 +209,13 @@ const seedData = () => {
 
   if (localStorage.getItem(KEYS.CONFIG) === null) {
     const config: AppConfig = {
-      companyName: 'Avícola Barsa', logoUrl: '',
-      printerConnected: false, scaleConnected: false,
-      defaultFullCrateBatch: 5, defaultEmptyCrateBatch: 10,
+      appName: 'AVICONTROL PRO',
+      companyName: 'AVÍCOLA BARSA S.A.C.', 
+      logoUrl: '',
+      printerConnected: false, 
+      scaleConnected: false,
+      defaultFullCrateBatch: 5, 
+      defaultEmptyCrateBatch: 10,
       cloudEnabled: false,
       firebaseConfig: {
         apiKey: '', authDomain: '', projectId: '', storageBucket: '',
@@ -279,7 +295,10 @@ export const getConfig = (): AppConfig => {
 
 export const saveConfig = (cfg: AppConfig) => {
   localStorage.setItem(KEYS.CONFIG, JSON.stringify(cfg));
-  initFirebase(cfg);
+  // Re-inicializamos Firebase si la nube está activa
+  if (cfg.cloudEnabled) {
+      initFirebase(cfg).catch(e => console.error("Auto-init error:", e));
+  }
   window.dispatchEvent(new Event('avi_data_config'));
 };
 

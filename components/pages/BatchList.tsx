@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Batch, WeighingType, UserRole } from '../../types';
-import { getBatches, saveBatch, deleteBatch, getOrdersByBatch, getUsers } from '../../services/storage';
+// Fixed: getOrdersByBatch is not exported in storage.ts, using getOrders instead.
+import { getBatches, saveBatch, deleteBatch, getOrders, getUsers } from '../../services/storage';
 import { Plus, Trash2, Edit, Scale, Calendar, Box, Activity, ArrowLeft } from 'lucide-react';
 import { AuthContext } from '../../App';
 
@@ -56,7 +58,8 @@ const BatchList: React.FC = () => {
   const canEdit = user?.role === UserRole.ADMIN || user?.role === UserRole.GENERAL;
 
   const BatchCard: React.FC<{ batch: Batch }> = ({ batch }) => {
-    const orders = getOrdersByBatch(batch.id);
+    // Fixed: getOrdersByBatch was replaced with manual filtering of getOrders().
+    const orders = getOrders().filter(o => o.batchId === batch.id);
     let totalFullCrates = 0; let totalFullWeight = 0;
     let totalEmptyCrates = 0; let totalEmptyWeight = 0;
     let totalMort = 0; let totalMortWeight = 0;

@@ -1,7 +1,7 @@
 
 import { User, UserRole, Batch, ClientOrder, AppConfig, WeighingType } from '../types';
 import { initializeApp } from 'https://esm.sh/firebase@11.3.1/app';
-import { getDatabase, ref, onValue, set, off, get } from 'https://esm.sh/firebase@11.3.1/database';
+import { getDatabase, ref, onValue, set } from 'https://esm.sh/firebase@11.3.1/database';
 
 const KEYS = {
   USERS: 'avi_users',
@@ -23,6 +23,12 @@ const safeParse = (key: string, fallback: any) => {
     }
 };
 
+const arrayFromFirebase = (data: any) => {
+    if (!data) return [];
+    if (Array.isArray(data)) return data.filter(Boolean);
+    return Object.values(data);
+};
+
 // --- Firebase Sync Logic ---
 
 const initFirebase = (config: AppConfig) => {
@@ -32,6 +38,7 @@ const initFirebase = (config: AppConfig) => {
             firebaseApp = initializeApp(config.firebaseConfig);
             firebaseDb = getDatabase(firebaseApp);
             setupListeners();
+            console.log("Firebase Initialized Successfully");
         }
     } catch (e) {
         console.error("Firebase Init Error:", e);
@@ -41,18 +48,27 @@ const initFirebase = (config: AppConfig) => {
 const setupListeners = () => {
     if (!firebaseDb) return;
     
-    // Escuchar cambios en toda la base de datos de esta empresa
-    const dbRef = ref(firebaseDb, 'data/');
-    onValue(dbRef, (snapshot) => {
+    // Escuchar cambios específicos para asegurar reactividad inmediata
+    onValue(ref(firebaseDb, 'data/users'), (snapshot) => {
         const data = snapshot.val();
         if (data) {
-            if (data.users) localStorage.setItem(KEYS.USERS, JSON.stringify(Object.values(data.users)));
-            if (data.batches) localStorage.setItem(KEYS.BATCHES, JSON.stringify(Object.values(data.batches)));
-            if (data.orders) localStorage.setItem(KEYS.ORDERS, JSON.stringify(Object.values(data.orders)));
-            
-            // Notificar a la UI
+            localStorage.setItem(KEYS.USERS, JSON.stringify(arrayFromFirebase(data)));
             window.dispatchEvent(new Event('avi_data_users'));
+        }
+    });
+
+    onValue(ref(firebaseDb, 'data/batches'), (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            localStorage.setItem(KEYS.BATCHES, JSON.stringify(arrayFromFirebase(data)));
             window.dispatchEvent(new Event('avi_data_batches'));
+        }
+    });
+
+    onValue(ref(firebaseDb, 'data/orders'), (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            localStorage.setItem(KEYS.ORDERS, JSON.stringify(arrayFromFirebase(data)));
             window.dispatchEvent(new Event('avi_data_orders'));
         }
     });
@@ -101,6 +117,7 @@ seedData();
 // --- Exported Methods ---
 
 export const getUsers = (): User[] => safeParse(KEYS.USERS, []);
+
 export const saveUser = (user: User) => {
   const users = getUsers();
   const idx = users.findIndex(u => u.id === user.id);
@@ -156,18 +173,12 @@ export const deleteOrder = (id: string) => {
   window.dispatchEvent(new Event('avi_data_orders'));
 };
 
-export const getOrdersByBatch = (batchId: string) => getOrders().filter(o => o.batchId === batchId);
-
 export const getConfig = (): AppConfig => {
-    const cfg = safeParse(KEYS.CONFIG, {
-        companyName: 'Avícola Barsa',
-        logoUrl: '',
-        defaultFullCrateBatch: 5,
-        defaultEmptyCrateBatch: 10,
-        cloudEnabled: false,
-        firebaseConfig: {}
-    });
-    // Autoinicializar Firebase si está activo
+    const cfg = safeParse(KEYS.CONFIG, null);
+    if (!cfg) {
+        seedData();
+        return safeParse(KEYS.CONFIG, {});
+    }
     if (cfg.cloudEnabled && !firebaseApp) initFirebase(cfg);
     return cfg;
 };
@@ -175,11 +186,6 @@ export const getConfig = (): AppConfig => {
 export const saveConfig = (cfg: AppConfig) => {
   localStorage.setItem(KEYS.CONFIG, JSON.stringify(cfg));
   if (cfg.cloudEnabled) initFirebase(cfg);
-  else {
-      // Si se desactiva, podríamos querer limpiar listeners
-      firebaseApp = null;
-      firebaseDb = null;
-  }
   window.dispatchEvent(new Event('avi_data_config'));
 };
 

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { User, UserRole } from './types';
-import { LogOut, ArrowLeft, Settings, Database, RefreshCw } from 'lucide-react';
+import { User, UserRole, AppConfig } from './types';
+import { LogOut, ArrowLeft, RefreshCw, Cloud, CloudOff, Wifi } from 'lucide-react';
+import { getConfig } from './services/storage';
 
 // Pages
 import LoginPage from './components/pages/Login';
@@ -24,16 +25,26 @@ export const AuthContext = React.createContext<{
 const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?: boolean }> = ({ children, title, showBack }) => {
   const { user, logout } = React.useContext(AuthContext);
   const navigate = useNavigate();
+  const [config, setConfig] = useState<AppConfig>(getConfig());
+
+  useEffect(() => {
+    const handleConfigUpdate = () => {
+      setConfig(getConfig());
+    };
+    window.addEventListener('avi_data_config', handleConfigUpdate);
+    return () => window.removeEventListener('avi_data_config', handleConfigUpdate);
+  }, []);
 
   const handleUpdate = () => {
-    // Forzamos una recarga limpia para asegurar que los cambios se apliquen
     window.location.reload();
   };
 
   if (!user) return <Navigate to="/login" />;
 
+  const isCloudActive = config.cloudEnabled && config.firebaseConfig.apiKey;
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-youthful">
       {/* App Bar - Navy Blue */}
       <header className="bg-blue-950 text-white shadow-lg p-3 sticky top-0 z-50 border-b border-blue-900">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
@@ -43,10 +54,25 @@ const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?
                 <ArrowLeft size={24} />
               </button>
             )}
-            <h1 className="text-lg font-black tracking-tight uppercase">{title || 'SISTEMA BARSA'}</h1>
+            <div className="flex flex-col">
+              <h1 className="text-lg font-black tracking-tight uppercase leading-none">{title || 'SISTEMA BARSA'}</h1>
+              <div className="flex items-center gap-1.5 mt-1">
+                {isCloudActive ? (
+                  <div className="flex items-center gap-1 group cursor-help">
+                    <Cloud size={12} className="text-emerald-400 animate-pulse" />
+                    <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Nube Conectada</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 opacity-50">
+                    <CloudOff size={12} className="text-slate-400" />
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Modo Local</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+          
           <div className="flex items-center space-x-2">
-            
             <div className="text-right hidden md:block mr-2 border-r border-blue-800 pr-4">
               <p className="text-[10px] font-black text-blue-400 uppercase leading-none mb-1">Usuario Activo</p>
               <p className="text-xs font-bold text-white leading-none">{user.name}</p>
@@ -85,7 +111,6 @@ const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?
 };
 
 const App: React.FC = () => {
-    // Simple Session Persistence
     const [user, setUserState] = useState<User | null>(() => {
         try {
             const saved = localStorage.getItem('avi_session_user');

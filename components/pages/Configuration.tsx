@@ -1,7 +1,9 @@
+
 import React, { useState, useContext } from 'react';
 import { AppConfig, UserRole } from '../../types';
 import { getConfig, saveConfig, resetApp } from '../../services/storage';
-import { Save, Check, AlertTriangle, Building2, ShieldAlert, Cloud, Bluetooth, Printer, Loader2, Link2, Info, X, Search, Wifi, RefreshCw, Database } from 'lucide-react';
+// Added CloudOff to the imports from lucide-react to fix the undefined variable error.
+import { Save, Check, AlertTriangle, Building2, ShieldAlert, Cloud, CloudOff, Bluetooth, Printer, Loader2, Link2, Info, X, Search, Wifi, RefreshCw, Database } from 'lucide-react';
 import { AuthContext } from '../../App';
 
 const Configuration: React.FC = () => {
@@ -27,8 +29,18 @@ const Configuration: React.FC = () => {
       setIsSyncing(true);
       setTimeout(() => {
           setIsSyncing(false);
+          const newConfig = { ...config, cloudEnabled: true };
+          setConfig(newConfig);
+          saveConfig(newConfig);
           alert("Firebase Conectado. Sincronización en tiempo real activada.");
       }, 2000);
+  };
+
+  const handleDisconnectCloud = () => {
+      const newConfig = { ...config, cloudEnabled: false };
+      setConfig(newConfig);
+      saveConfig(newConfig);
+      alert("Sincronización desactivada. Operando en modo local.");
   };
 
   const startSearch = (type: 'printer' | 'scale') => {
@@ -36,7 +48,6 @@ const Configuration: React.FC = () => {
       setIsSearching(true);
       setFoundDevices([]);
       
-      // Simulación de búsqueda en tiempo real (descubrimiento progresivo)
       setTimeout(() => {
           setFoundDevices(prev => [...prev, { id: 'SC-01', name: type === 'scale' ? 'Balanza AviControl 5.0' : 'Ticketera Térmica BT' }]);
       }, 1000);
@@ -124,22 +135,31 @@ const Configuration: React.FC = () => {
               </div>
 
               <div className="bg-white rounded-3xl shadow-sm border p-6 space-y-6">
-                <div className="flex justify-between items-center border-b pb-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 gap-4">
                     <h3 className="font-bold text-slate-800 flex items-center uppercase text-xs tracking-widest"><Cloud size={16} className="mr-2 text-blue-500"/> Sincronización Cloud (Firebase)</h3>
-                    <button 
-                        onClick={handleConnectCloud}
-                        disabled={isSyncing}
-                        className="bg-blue-600 text-white px-8 py-3 rounded-xl font-black uppercase tracking-widest flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
-                    >
-                        {isSyncing ? <RefreshCw size={16} className="animate-spin"/> : <Wifi size={16}/>}
-                        {isSyncing ? 'CONECTANDO...' : 'CONECTAR A LA NUBE'}
-                    </button>
+                    {config.cloudEnabled ? (
+                        <button 
+                            onClick={handleDisconnectCloud}
+                            className="bg-red-100 text-red-700 px-8 py-3 rounded-xl font-black uppercase tracking-widest flex items-center gap-2 hover:bg-red-200 transition-all active:scale-95"
+                        >
+                            <CloudOff size={16}/> DESCONECTAR NUBE
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={handleConnectCloud}
+                            disabled={isSyncing}
+                            className="bg-blue-600 text-white px-8 py-3 rounded-xl font-black uppercase tracking-widest flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                            {isSyncing ? <RefreshCw size={16} className="animate-spin"/> : <Wifi size={16}/>}
+                            {isSyncing ? 'CONECTANDO...' : 'CONECTAR A LA NUBE'}
+                        </button>
+                    )}
                 </div>
                 
                 <div className="space-y-6">
                     <div className="flex items-center gap-4 bg-blue-50 p-5 rounded-2xl text-blue-800 text-xs border border-blue-100">
                         <Info size={20} className="shrink-0"/>
-                        <p className="font-bold">Para evitar la pérdida de información ante fallos locales, se recomienda mantener activa la sincronización con Firebase Cloud.</p>
+                        <p className="font-bold">El icono de nube en el encabezado indicará si la sincronización está activa.</p>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 opacity-85">
@@ -176,12 +196,12 @@ const Configuration: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-              <div className="bg-white rounded-3xl border border-red-50 p-8 text-center">
+              <div className="bg-white rounded-3xl border border-red-50 p-8 text-center shadow-sm">
                   <div className="bg-red-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
                       <ShieldAlert size={32}/>
                   </div>
                   <h3 className="font-black text-sm text-slate-800 mb-2 uppercase tracking-widest">Reseteo Maestro</h3>
-                  <p className="text-xs text-slate-500 mb-6 italic">Esta acción borrará todos los datos del dispositivo. No se puede deshacer.</p>
+                  <p className="text-xs text-slate-500 mb-6 italic leading-relaxed">Esta acción borrará todos los datos locales del dispositivo de forma permanente.</p>
                   <button onClick={() => { if(confirm('¿BORRAR TODO?')) resetApp(); }} className="w-full bg-red-600 text-white py-5 rounded-2xl text-[10px] font-black uppercase flex items-center justify-center gap-2 shadow-xl hover:bg-red-700 transition-all active:scale-95">
                       <AlertTriangle size={18}/> REINICIAR SISTEMA
                   </button>

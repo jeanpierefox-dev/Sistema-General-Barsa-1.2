@@ -1,7 +1,7 @@
 
 import { User, UserRole, Batch, ClientOrder, AppConfig, WeighingType } from '../types';
-import { initializeApp, getApps, deleteApp } from 'https://esm.sh/firebase@11.3.1/app';
-import { getDatabase, ref, onValue, set, get } from 'https://esm.sh/firebase@11.3.1/database';
+import { initializeApp, getApps, deleteApp } from 'firebase/app';
+import { getDatabase, ref, onValue, set, get } from 'firebase/database';
 
 const KEYS = {
   USERS: 'avi_users',
@@ -37,42 +37,50 @@ const sanitizeForFirebase = (data: any) => {
 
 // --- Lógica de Conexión ---
 
-/**
- * Inicializa Firebase con validaciones estrictas.
- */
 const initFirebase = async (config: AppConfig) => {
     const fc = config.firebaseConfig;
     
-    // Validaciones preventivas
-    if (!fc.apiKey || fc.apiKey.trim() === '') throw new Error("Falta la API Key de Firebase.");
-    if (!fc.databaseURL || fc.databaseURL.trim() === '') throw new Error("Falta la URL de la base de datos.");
-    if (!fc.databaseURL.startsWith('https://')) throw new Error("La URL de la base de datos debe empezar con https://");
-    if (!fc.projectId || fc.projectId.trim() === '') throw new Error("Falta el Project ID.");
+    // Validación y Limpieza
+    const apiKey = fc.apiKey?.trim();
+    const dbURL = fc.databaseURL?.trim();
+    const projId = fc.projectId?.trim();
+
+    if (!apiKey || !dbURL || !projId) {
+        throw new Error("Faltan credenciales críticas (API Key, URL o Project ID).");
+    }
 
     try {
+        // Reiniciar apps previas para evitar conflictos de instancia
         const apps = getApps();
-        if (apps.length > 0) {
-            for (const app of apps) {
-                await deleteApp(app);
-            }
+        for (const app of apps) {
+            await deleteApp(app);
         }
         
-        // Limpiamos espacios en blanco de la configuración antes de iniciar
         const cleanConfig = {
-            ...fc,
-            apiKey: fc.apiKey.trim(),
-            databaseURL: fc.databaseURL.trim(),
-            projectId: fc.projectId.trim(),
-            appId: fc.appId.trim()
+            apiKey: apiKey,
+            databaseURL: dbURL,
+            projectId: projId,
+            appId: fc.appId?.trim() || "",
+            authDomain: `${projId}.firebaseapp.com`,
+            storageBucket: `${projId}.appspot.com`
         };
 
+        console.log("Intentando conectar a:", dbURL);
+        
         firebaseApp = initializeApp(cleanConfig);
-        firebaseDb = getDatabase(firebaseApp);
+        
+        // SOLUCIÓN CLAVE: Pasar explícitamente la URL al obtener la base de datos
+        firebaseDb = getDatabase(firebaseApp, dbURL);
+        
+        if (!firebaseDb) {
+            throw new Error("El servicio de base de datos no se pudo inicializar.");
+        }
+
         setupListeners();
         return firebaseDb;
     } catch (e: any) {
         console.error("Firebase Init Error:", e);
-        throw new Error("Fallo crítico al crear la instancia: " + (e.message || "Verifique sus credenciales."));
+        throw new Error(`Fallo de conexión: ${e.message}`);
     }
 };
 
@@ -111,30 +119,22 @@ const setupListeners = () => {
     });
 };
 
-/**
- * Prueba la conexión usando una configuración específica (útil para pruebas antes de guardar).
- */
 export const testCloudConnection = async (tempConfig?: AppConfig): Promise<{success: boolean, message: string}> => {
     const config = tempConfig || getConfig();
-    
     try {
         const db = await initFirebase(config);
-        if (!db) throw new Error("No se pudo obtener la referencia de la base de datos.");
         
-        // Verificamos conexión real con el servidor
+        // Verificamos conexión real leyendo un nodo especial de Firebase
         const connectedRef = ref(db, '.info/connected');
         const snapshot = await get(connectedRef);
         
         if (snapshot.val() === true) {
-            return { success: true, message: "¡CONEXIÓN EXITOSA! El sistema se comunicó con Firebase correctamente." };
+            return { success: true, message: "¡SISTEMA VINCULADO! Conexión con la nube establecida." };
         } else {
-            return { success: false, message: "Instancia creada, pero el servidor no responde. Revise su Internet." };
+            return { success: false, message: "No se pudo establecer comunicación. Verifique su internet." };
         }
     } catch (e: any) {
-        console.error("Test Connection Fail:", e);
-        let msg = e.message || "Error desconocido.";
-        if (msg.includes('permission_denied')) msg = "PERMISOS DENEGADOS: Cambie las 'Rules' de su Realtime Database a true.";
-        return { success: false, message: msg };
+        return { success: false, message: e.message };
     }
 };
 
@@ -157,7 +157,7 @@ export const forceSyncUsers = async () => {
 
 export const uploadLocalDataToCloud = async () => {
     const db = await ensureConnected();
-    if (!db) throw new Error("La nube no está activa en la configuración.");
+    if (!db) throw new Error("La nube no está configurada.");
     try {
         const users = sanitizeForFirebase(getUsers());
         const batches = sanitizeForFirebase(getBatches());
@@ -168,7 +168,7 @@ export const uploadLocalDataToCloud = async () => {
         return true;
     } catch (e: any) {
         if (e.message?.includes('permission_denied')) {
-            throw new Error("REGLAS DE FIREBASE INCORRECTAS. Deben estar en true.");
+            throw new Error("REGLAS DE FIREBASE: Cambie 'Rules' a true en la consola de Firebase.");
         }
         throw e;
     }
@@ -295,7 +295,6 @@ export const getConfig = (): AppConfig => {
 
 export const saveConfig = (cfg: AppConfig) => {
   localStorage.setItem(KEYS.CONFIG, JSON.stringify(cfg));
-  // Re-inicializamos Firebase si la nube está activa
   if (cfg.cloudEnabled) {
       initFirebase(cfg).catch(e => console.error("Auto-init error:", e));
   }

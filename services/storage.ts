@@ -1,4 +1,4 @@
-import { User, UserRole, Batch, ClientOrder, AppConfig } from '../types';
+import { User, UserRole, Batch, ClientOrder, AppConfig, WeighingType } from '../types';
 
 const KEYS = {
   USERS: 'avi_users',
@@ -19,16 +19,43 @@ const safeParse = (key: string, fallback: any) => {
 };
 
 const seedData = () => {
-  if (localStorage.getItem(KEYS.USERS) === null) {
+  // Inicialización de Usuarios si la lista está vacía
+  const existingUsers = safeParse(KEYS.USERS, []);
+  if (existingUsers.length === 0) {
+    const defaultModes = [WeighingType.BATCH, WeighingType.SOLO_POLLO, WeighingType.SOLO_JABAS];
+    
     const admin: User = {
       id: 'admin-1',
       username: 'admin',
       password: '123',
-      name: 'Administrador Principal',
-      role: UserRole.ADMIN
+      name: 'Administrador Barsa',
+      role: UserRole.ADMIN,
+      allowedModes: defaultModes
     };
-    localStorage.setItem(KEYS.USERS, JSON.stringify([admin]));
+
+    const general: User = {
+      id: 'gen-1',
+      username: 'general',
+      password: '123',
+      name: 'Supervisor de Planta',
+      role: UserRole.GENERAL,
+      allowedModes: defaultModes
+    };
+
+    const operator: User = {
+      id: 'ope-1',
+      username: 'operador',
+      password: '123',
+      name: 'Operador de Pesaje 01',
+      role: UserRole.OPERATOR,
+      parentId: 'gen-1', // Vinculado al supervisor general
+      allowedModes: [WeighingType.BATCH, WeighingType.SOLO_JABAS] // Solo jabas según requerimiento
+    };
+
+    localStorage.setItem(KEYS.USERS, JSON.stringify([admin, general, operator]));
   }
+
+  // Inicialización de Configuración
   if (localStorage.getItem(KEYS.CONFIG) === null) {
     const config: AppConfig = {
       companyName: 'Avícola Barsa',
@@ -70,7 +97,7 @@ export const deleteUser = (id: string) => {
 };
 export const login = (u: string, p: string): User | null => {
   const users = getUsers();
-  return users.find(user => user.username === u && user.password === p) || null;
+  return users.find(user => user.username.toLowerCase() === u.toLowerCase() && user.password === p) || null;
 };
 
 export const getBatches = (): Batch[] => safeParse(KEYS.BATCHES, []);
@@ -85,7 +112,6 @@ export const saveBatch = (batch: Batch) => {
 export const deleteBatch = (id: string) => {
   const batches = getBatches().filter(b => b.id !== id);
   localStorage.setItem(KEYS.BATCHES, JSON.stringify(batches));
-  // Also delete associated orders
   const orders = getOrders().filter(o => o.batchId !== id);
   localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
   window.dispatchEvent(new Event('avi_data_batches'));
@@ -108,7 +134,12 @@ export const deleteOrder = (id: string) => {
 };
 export const getOrdersByBatch = (batchId: string) => getOrders().filter(o => o.batchId === batchId);
 
-export const getConfig = (): AppConfig => safeParse(KEYS.CONFIG, {});
+export const getConfig = (): AppConfig => safeParse(KEYS.CONFIG, {
+    companyName: 'Avícola Barsa',
+    logoUrl: '',
+    defaultFullCrateBatch: 5,
+    defaultEmptyCrateBatch: 10
+});
 export const saveConfig = (cfg: AppConfig) => {
   localStorage.setItem(KEYS.CONFIG, JSON.stringify(cfg));
   window.dispatchEvent(new Event('avi_data_config'));

@@ -11,7 +11,6 @@ const Dashboard: React.FC = () => {
   const config = getConfig();
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Force re-render when data comes from cloud
   useEffect(() => {
     const handleDataUpdate = () => setRefreshKey(prev => prev + 1);
     window.addEventListener('avi_data_batches', handleDataUpdate);
@@ -25,8 +24,11 @@ const Dashboard: React.FC = () => {
   const MenuCard = ({ title, desc, icon, onClick, color, roles, compact = false, mode }: any) => {
     if (!roles.includes(user?.role)) return null;
     
-    // Check specific weighing permissions
-    if (mode && user?.allowedModes && !user.allowedModes.includes(mode)) return null;
+    // Seguridad: Si allowedModes es null/undefined, permitimos acceso por defecto (fallback)
+    // De lo contrario, respetamos el filtrado por permiso.
+    if (mode && user?.allowedModes && user.allowedModes.length > 0) {
+        if (!user.allowedModes.includes(mode)) return null;
+    }
 
     return (
       <button
@@ -58,22 +60,22 @@ const Dashboard: React.FC = () => {
             {config.logoUrl && <img src={config.logoUrl} alt="Logo" className="h-16 w-16 object-contain" />}
             <div>
                 <h2 className="text-2xl font-black text-slate-900">Hola, {user?.name.split(' ')[0]}</h2>
-                <p className="text-slate-500 font-medium">Panel de Control General</p>
+                <p className="text-slate-500 font-medium tracking-tight">Rol: <span className="text-blue-600 uppercase text-xs font-black">{user?.role}</span></p>
             </div>
         </div>
         <div className="text-right bg-slate-50 px-4 py-2 rounded-lg border border-gray-100">
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Fecha del Sistema</p>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Fecha de Operación</p>
             <p className="font-mono font-bold text-lg text-slate-800">{new Date().toLocaleDateString()}</p>
         </div>
       </div>
 
       {/* Operaciones Principales */}
       <div>
-        <h3 className="text-lg font-bold text-slate-800 mb-4 border-b border-gray-200 pb-2 flex items-center"><Package size={20} className="mr-2"/> Módulos de Pesaje</h3>
+        <h3 className="text-lg font-bold text-slate-800 mb-4 border-b border-gray-200 pb-2 flex items-center"><Package size={20} className="mr-2"/> Módulos de Pesaje Autorizados</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <MenuCard
               title="Pesaje por Lote"
-              desc="Gestión completa de lotes, clientes, tara y merma."
+              desc="Gestión completa de lotes, clientes y pesajes jerárquicos."
               icon={<Package size={28} />}
               onClick={() => navigate('/lotes')}
               color="bg-blue-600"
@@ -82,7 +84,7 @@ const Dashboard: React.FC = () => {
             />
             <MenuCard
               title="Solo Pollo"
-              desc="Venta directa. Pesaje rápido sin gestión de lote."
+              desc="Venta directa rápida sin gestión de lote."
               icon={<Bird size={28} />}
               onClick={() => navigate(`/weigh/${WeighingType.SOLO_POLLO}`)}
               color="bg-amber-500"
@@ -91,7 +93,7 @@ const Dashboard: React.FC = () => {
             />
             <MenuCard
               title="Solo Jabas"
-              desc="Venta de jabas llenas con cálculo automático."
+              desc="Venta de jabas llenas con cálculo simplificado."
               icon={<Box size={28} />}
               onClick={() => navigate(`/weigh/${WeighingType.SOLO_JABAS}`)}
               color="bg-emerald-600"
@@ -103,7 +105,7 @@ const Dashboard: React.FC = () => {
 
       {/* Administración */}
       <div>
-        <h3 className="text-lg font-bold text-slate-800 mb-4 border-b border-gray-200 pb-2 flex items-center"><Settings size={20} className="mr-2"/> Administración</h3>
+        <h3 className="text-lg font-bold text-slate-800 mb-4 border-b border-gray-200 pb-2 flex items-center"><Settings size={20} className="mr-2"/> Panel Administrativo</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <MenuCard
               title="Cobranza"

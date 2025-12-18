@@ -33,7 +33,6 @@ const WeighingStation: React.FC = () => {
   
   const weightInputRef = useRef<HTMLInputElement>(null);
 
-  // Filtramos los tipos de pesaje según el rol (Operador no ve Merma)
   const isOperator = user?.role === UserRole.OPERATOR;
   const types = [
       { t: 'FULL', l: 'JABAS LLENAS', c: [23, 37, 84], bg: 'bg-blue-900', text: 'text-blue-100' },
@@ -80,22 +79,17 @@ const WeighingStation: React.FC = () => {
     let allOrders = getOrders();
     let allUsers = getUsers();
 
-    // Filtrado por modo/lote
     if (mode === WeighingType.BATCH && batchId) {
       allOrders = allOrders.filter(o => o.batchId === batchId);
     } else {
       allOrders = allOrders.filter(o => !o.batchId && o.weighingMode === mode);
     }
 
-    // Filtrado por jerarquía
     if (user?.role === UserRole.ADMIN) {
-        // Ve todos
     } else if (user?.role === UserRole.GENERAL) {
-        // Ve propios y subordinados
         const subordinateIds = allUsers.filter(u => u.parentId === user.id).map(u => u.id);
         allOrders = allOrders.filter(o => o.createdBy === user.id || subordinateIds.includes(o.createdBy || ''));
     } else {
-        // Operador ve solo lo suyo
         allOrders = allOrders.filter(o => o.createdBy === user?.id);
     }
 
@@ -240,53 +234,6 @@ const WeighingStation: React.FC = () => {
     doc.save(`Ticket_${order.clientName}.pdf`);
   };
 
-  const generateDetailPDF = () => {
-    if(!activeOrder) return;
-    const totals = getTotals(activeOrder);
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const navy: [number, number, number] = [23, 37, 84];
-    
-    if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 10, 24, 24); } catch {} }
-    doc.setFont("helvetica", "bold").setFontSize(22).setTextColor(navy[0], navy[1], navy[2]);
-    doc.text(config.companyName.toUpperCase(), 105, 40, { align: 'center' });
-    doc.setFontSize(11).setTextColor(100).text("REPORTE CONSOLIDADO DE PESAJE", 105, 47, { align: 'center' });
-    doc.setFontSize(10).setTextColor(0).text(`CLIENTE: ${activeOrder.clientName.toUpperCase()}  |  FECHA: ${new Date().toLocaleString()}`, 105, 58, { align: 'center' });
-
-    autoTable(doc, {
-        startY: 65,
-        theme: 'grid',
-        head: [['CONCEPTO OPERATIVO', 'CANTIDAD (UNDS)', 'PESO TOTAL (KG)']],
-        body: [
-            ['PESO BRUTO (JABAS LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
-            ['PESO TARA (JABAS VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
-            ['MERMA (MUERTOS/DESC)', totals.mortCount, totals.totalMortWeight.toFixed(2)],
-            [{ content: 'PESO NETO FACTURABLE', styles: { fontStyle: 'bold', fillColor: [245, 245, 245] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [245, 245, 245] } }],
-            ['POLLOS NETOS (ESTIMADO)', totals.totalBirdsFinal, '-'],
-            ['PROMEDIO POR AVE', '-', totals.avgWeight.toFixed(3) + ' KG']
-        ],
-        headStyles: { fillColor: navy, halign: 'center' },
-        styles: { halign: 'center', fontSize: 9 }
-    });
-
-    let currentY = (doc as any).lastAutoTable.finalY + 15;
-    types.forEach(sec => {
-        const recs = activeOrder.records.filter(r => r.type === sec.t);
-        if (recs.length > 0) {
-            if (currentY > 260) { doc.addPage(); currentY = 20; }
-            doc.setFontSize(10).setFont("helvetica", "bold").setTextColor(sec.c[0], sec.c[1], sec.c[2]).text(sec.l, 14, currentY);
-            autoTable(doc, {
-                startY: currentY + 4,
-                head: [['#', 'HORA', 'UNDS', 'PESO KG']],
-                body: recs.map((r, i) => [i + 1, new Date(r.timestamp).toLocaleTimeString(), r.quantity, r.weight.toFixed(2)]),
-                headStyles: { fillColor: sec.c as any },
-                styles: { fontSize: 8, halign: 'center' }
-            });
-            currentY = (doc as any).lastAutoTable.finalY + 12;
-        }
-    });
-    doc.save(`Detalle_${activeOrder.clientName}.pdf`);
-  };
-
   const handleSaveClient = () => {
     if (!newClientName) return;
     if (editingOrder) {
@@ -330,47 +277,56 @@ const WeighingStation: React.FC = () => {
   if (!activeOrder) {
     return (
       <div className="p-4 max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-10 pb-4 border-b">
+        <div className="flex justify-between items-center mb-10 pb-6 border-b-2 border-slate-100">
             <div>
-                <h2 className="text-2xl font-black text-blue-950 uppercase tracking-tight">Estación de Pesaje</h2>
-                <p className="text-slate-500 text-sm font-medium">Control de pesajes para {mode === WeighingType.BATCH ? 'Lote' : mode}</p>
+                <h2 className="text-3xl font-black text-blue-950 uppercase tracking-tight">Estación de Clientes</h2>
+                <p className="text-slate-500 text-lg font-medium mt-1">
+                  {mode === WeighingType.BATCH ? `Lote Activo: ${currentBatch?.name || 'Cargando...'}` : `Modo: ${mode}`}
+                </p>
             </div>
-            <div className="flex gap-2">
-                <button onClick={() => navigate('/config')} className="bg-slate-100 text-slate-600 p-3 rounded-xl"><Settings size={20}/></button>
-                <button onClick={() => navigate('/')} className="bg-white border-2 border-slate-100 text-slate-700 px-6 py-3 rounded-xl font-black text-xs uppercase shadow-sm flex items-center"><ArrowLeft size={18} className="mr-2"/> Volver</button>
+            <div className="flex gap-4">
+                <button onClick={() => navigate('/config')} className="bg-white border-2 border-slate-100 text-slate-400 p-4 rounded-2xl hover:bg-slate-50 transition-all"><Settings size={28}/></button>
+                <button onClick={() => navigate('/')} className="bg-white border-2 border-slate-100 text-slate-700 px-8 py-4 rounded-2xl font-black text-xs uppercase shadow-sm flex items-center hover:bg-slate-50 transition-all"><ArrowLeft size={20} className="mr-3"/> Regresar</button>
             </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-          <button onClick={() => { setEditingOrder(null); setShowClientModal(true); }} className="flex flex-col items-center justify-center h-52 bg-slate-50 border-2 border-dashed border-slate-300 rounded-3xl hover:bg-white hover:border-blue-600 transition-all group">
-            <Plus size={32} className="text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
-            <span className="font-black text-slate-600 uppercase text-[10px] tracking-widest">Añadir Cliente</span>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+          <button 
+            onClick={() => { setEditingOrder(null); setShowClientModal(true); }} 
+            className="flex flex-col items-center justify-center h-64 bg-slate-50 border-4 border-dashed border-slate-200 rounded-[3rem] hover:bg-white hover:border-blue-600 transition-all group shadow-inner"
+          >
+            <div className="bg-white p-6 rounded-full shadow-lg mb-4 group-hover:scale-110 transition-transform">
+                <Plus size={40} className="text-blue-600" />
+            </div>
+            <span className="font-black text-slate-500 uppercase text-xs tracking-widest">Registrar Nuevo Cliente</span>
           </button>
+          
           {orders.map(order => {
               const oTotals = getTotals(order);
               const oClosed = order.status === 'CLOSED';
               return (
-                  <div key={order.id} className={`bg-white rounded-3xl shadow-sm border-2 transition-all duration-300 overflow-hidden flex flex-col h-full relative cursor-pointer ${oClosed ? 'opacity-70 bg-slate-50 border-slate-200' : 'border-slate-100 hover:border-blue-500 hover:shadow-xl'}`} onClick={() => setActiveOrder(order)}>
-                      <div className="bg-slate-900 p-4 flex justify-between items-start">
-                         <div className="flex items-center space-x-3">
-                             <div className={`p-2 rounded-xl text-white ${oClosed ? 'bg-slate-700' : 'bg-blue-600'}`}>
-                                 {oClosed ? <Lock size={16} /> : <User size={16} />}
+                  <div key={order.id} className={`bg-white rounded-[3rem] shadow-sm border-2 transition-all duration-300 overflow-hidden flex flex-col h-64 relative cursor-pointer ${oClosed ? 'opacity-70 bg-slate-50 border-slate-200' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
+                      <div className="bg-slate-900 p-6 flex justify-between items-center">
+                         <div className="flex items-center space-x-4 overflow-hidden">
+                             <div className={`p-3 rounded-2xl text-white shadow-lg shrink-0 ${oClosed ? 'bg-slate-700' : 'bg-blue-600'}`}>
+                                 {oClosed ? <Lock size={20} /> : <User size={20} />}
                              </div>
-                             <h3 className="font-black text-white text-xs leading-tight uppercase truncate w-32">{order.clientName}</h3>
+                             <h3 className="font-black text-white text-base leading-tight uppercase truncate">{order.clientName}</h3>
                          </div>
-                         <div className="flex gap-1">
-                             <button onClick={(e) => { e.stopPropagation(); setEditingOrder(order); setNewClientName(order.clientName); setTargetCrates(order.targetCrates); setShowClientModal(true); }} className="bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-white"><Edit size={12}/></button>
-                             <button onClick={(e) => handleDeleteClient(e, order.id)} className="bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-red-500"><Trash2 size={12}/></button>
+                         <div className="flex gap-2 shrink-0">
+                             <button onClick={(e) => { e.stopPropagation(); setEditingOrder(order); setNewClientName(order.clientName); setTargetCrates(order.targetCrates); setShowClientModal(true); }} className="bg-slate-800 p-2.5 rounded-xl text-slate-400 hover:text-white transition-colors"><Edit size={16}/></button>
+                             <button onClick={(e) => handleDeleteClient(e, order.id)} className="bg-slate-800 p-2.5 rounded-xl text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                          </div>
                       </div>
-                      <div className="p-4 flex-1 flex flex-col justify-center space-y-3">
-                          <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-blue-50/50 p-2 rounded-xl text-center">
-                                  <p className="text-[7px] font-black text-blue-400 uppercase leading-none mb-1">Jabas</p>
-                                  <p className="font-black text-slate-800 text-sm">{oTotals.fullUnitsCount}</p>
+                      <div className="p-8 flex-1 flex flex-col justify-center">
+                          <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-blue-50/50 p-4 rounded-3xl text-center border border-blue-100/30">
+                                  <p className="text-[10px] font-black text-blue-500 uppercase leading-none mb-2 tracking-widest">Jabas</p>
+                                  <p className="font-black text-slate-900 text-3xl">{oTotals.fullUnitsCount}</p>
                               </div>
-                              <div className="bg-emerald-50/50 p-2 rounded-xl text-center">
-                                  <p className="text-[7px] font-black text-emerald-400 uppercase leading-none mb-1">Neto KG</p>
-                                  <p className="font-black text-slate-800 text-sm">{oTotals.netWeight.toFixed(1)}</p>
+                              <div className="bg-emerald-50/50 p-4 rounded-3xl text-center border border-emerald-100/30">
+                                  <p className="text-[10px] font-black text-emerald-500 uppercase leading-none mb-2 tracking-widest">Peso KG</p>
+                                  <p className="font-black text-slate-900 text-3xl">{oTotals.netWeight.toFixed(1)}</p>
                               </div>
                           </div>
                       </div>
@@ -381,15 +337,21 @@ const WeighingStation: React.FC = () => {
 
         {showClientModal && (
            <div className="fixed inset-0 bg-blue-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-             <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 w-full max-w-sm">
-                <h3 className="font-black text-2xl mb-8 text-slate-900 tracking-tight">{editingOrder ? 'Ajustar Cliente' : 'Nuevo Registro'}</h3>
-                <div className="space-y-6">
-                    <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Nombre del Cliente" autoFocus />
-                    <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={targetCrates || ''} onChange={e => setTargetCrates(Number(e.target.value))} placeholder="Meta de Jabas" />
+             <div className="bg-white rounded-[3rem] shadow-2xl p-12 w-full max-w-md">
+                <h3 className="font-black text-3xl mb-10 text-slate-900 tracking-tight uppercase">{editingOrder ? 'Ajustar Cliente' : 'Nuevo Registro'}</h3>
+                <div className="space-y-8">
+                    <div>
+                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Nombre del Cliente</label>
+                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 font-bold text-slate-900 outline-none focus:border-blue-500 focus:bg-white transition-all text-xl" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Ej. Juan Pérez" autoFocus />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Meta de Jabas (Opcional)</label>
+                        <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 font-bold text-slate-900 outline-none focus:border-blue-500 focus:bg-white transition-all text-xl" value={targetCrates || ''} onChange={e => setTargetCrates(Number(e.target.value))} placeholder="Ej. 100" />
+                    </div>
                 </div>
-                <div className="flex flex-col gap-2 mt-10">
-                    <button onClick={handleSaveClient} className="bg-blue-950 text-white w-full py-4 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-xs">GUARDAR</button>
-                    <button onClick={closeClientModal} className="w-full text-slate-400 font-bold py-2 text-xs uppercase">Cerrar</button>
+                <div className="flex flex-col gap-4 mt-12">
+                    <button onClick={handleSaveClient} className="bg-blue-950 text-white w-full py-5 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-sm tracking-widest active:scale-95 transition-all">GUARDAR CLIENTE</button>
+                    <button onClick={closeClientModal} className="w-full text-slate-400 font-bold py-2 text-xs uppercase tracking-widest">Cerrar</button>
                 </div>
              </div>
            </div>

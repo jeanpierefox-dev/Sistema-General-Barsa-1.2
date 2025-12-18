@@ -77,7 +77,7 @@ const UserManagement: React.FC = () => {
     <div className="space-y-6 max-w-5xl mx-auto pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-            <h2 className="text-2xl font-black text-gray-900 uppercase">Gestión de Accesos</h2>
+            <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Gestión de Accesos</h2>
             <p className="text-slate-500 text-xs flex items-center font-bold uppercase tracking-wider">
                 <Shield size={12} className="text-blue-500 mr-1.5"/>
                 Administrando como {currentUser?.role}
@@ -127,55 +127,55 @@ const UserManagement: React.FC = () => {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-blue-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-black text-xl text-slate-900 uppercase tracking-tight">{newUser.id ? 'Editar Cuenta' : 'Nueva Cuenta'}</h3>
-                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+        <div className="fixed inset-0 bg-blue-950/70 flex items-center justify-center p-2 z-[60] backdrop-blur-sm">
+          <div className="bg-white rounded-[1.5rem] shadow-2xl w-full max-w-sm flex flex-col max-h-[85vh] overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 className="font-black text-lg text-slate-900 uppercase tracking-tight">{newUser.id ? 'Editar Cuenta' : 'Nueva Cuenta'}</h3>
+                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1"><X size={20}/></button>
             </div>
             
-            <div className="p-6 overflow-y-auto space-y-4">
+            <div className="p-4 overflow-y-auto space-y-3 scrollbar-hide">
               <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Completo</label>
-                  <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2.5 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={newUser.name || ''} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Completo</label>
+                  <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-lg px-3 py-2 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all text-sm" value={newUser.name || ''} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ej. Juan Pérez" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Usuario</label>
-                      <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2.5 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={newUser.username || ''} onChange={e => setNewUser({...newUser, username: e.target.value})} />
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Usuario</label>
+                      <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-lg px-3 py-2 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all text-sm" value={newUser.username || ''} onChange={e => setNewUser({...newUser, username: e.target.value})} placeholder="jperez" />
                   </div>
                   <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clave</label>
-                      <input type="text" className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2.5 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={newUser.password || ''} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Clave</label>
+                      <input type="text" className="w-full bg-slate-50 border-2 border-slate-100 rounded-lg px-3 py-2 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all text-sm" value={newUser.password || ''} onChange={e => setNewUser({...newUser, password: e.target.value})} placeholder="123" />
                   </div>
               </div>
               <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Rol de Sistema</label>
-                  <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2.5 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all appearance-none" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})}>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Rol de Sistema</label>
+                  <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-lg px-3 py-2 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all appearance-none text-sm" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})}>
                     <option value={UserRole.OPERATOR}>Operador (Pesaje)</option>
                     {currentUser?.role === UserRole.ADMIN && <option value={UserRole.GENERAL}>Supervisor General</option>}
                     {currentUser?.role === UserRole.ADMIN && <option value={UserRole.ADMIN}>Administrador Total</option>}
                   </select>
               </div>
-              <div className="pt-2 space-y-2">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">Permisos de Módulo</p>
-                  <div className="space-y-2">
+              <div className="pt-2">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">Permisos de Módulo</p>
+                  <div className="space-y-1.5">
                       {[
                         {id: WeighingType.BATCH, l: 'Control de Lotes'},
                         {id: WeighingType.SOLO_POLLO, l: 'Solo Pollo'},
                         {id: WeighingType.SOLO_JABAS, l: 'Solo Jabas'}
                       ].map(m => (
-                        <button key={m.id} onClick={() => toggleMode(m.id)} className={`flex items-center justify-between w-full p-3 rounded-xl border-2 transition-all font-bold text-xs ${newUser.allowedModes?.includes(m.id) ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                        <button key={m.id} onClick={() => toggleMode(m.id)} className={`flex items-center justify-between w-full p-2.5 rounded-lg border-2 transition-all font-bold text-[11px] ${newUser.allowedModes?.includes(m.id) ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                            {m.l}
-                           {newUser.allowedModes?.includes(m.id) && <CheckSquare size={16}/>}
+                           {newUser.allowedModes?.includes(m.id) && <CheckSquare size={14}/>}
                         </button>
                       ))}
                   </div>
               </div>
             </div>
 
-            <div className="p-6 border-t border-slate-50 bg-slate-50/50 rounded-b-[2rem]">
-              <button onClick={handleSave} className="bg-blue-950 text-white w-full py-4 rounded-2xl font-black shadow-xl hover:bg-blue-900 transition-all uppercase text-xs tracking-widest active:scale-95">
+            <div className="p-4 border-t border-slate-100 bg-white">
+              <button onClick={handleSave} className="bg-blue-950 text-white w-full py-3.5 rounded-xl font-black shadow-lg hover:bg-blue-900 transition-all uppercase text-[11px] tracking-widest active:scale-95">
                 ACEPTAR Y GUARDAR
               </button>
             </div>

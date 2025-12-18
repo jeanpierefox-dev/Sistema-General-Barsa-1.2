@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { User } from './types';
-import { LogOut, ArrowLeft, Settings, Database } from 'lucide-react';
+import { User, UserRole } from './types';
+import { LogOut, ArrowLeft, Settings, Database, RefreshCw } from 'lucide-react';
 
 // Pages
 import LoginPage from './components/pages/Login';
@@ -25,12 +25,17 @@ const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?
   const { user, logout } = React.useContext(AuthContext);
   const navigate = useNavigate();
 
+  const handleUpdate = () => {
+    // Forzamos una recarga limpia para asegurar que los cambios se apliquen
+    window.location.reload();
+  };
+
   if (!user) return <Navigate to="/login" />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* App Bar - Navy Blue */}
-      <header className="bg-blue-950 text-white shadow-lg p-4 sticky top-0 z-50 border-b border-blue-900">
+      <header className="bg-blue-950 text-white shadow-lg p-3 sticky top-0 z-50 border-b border-blue-900">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-3">
             {showBack && (
@@ -38,20 +43,34 @@ const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?
                 <ArrowLeft size={24} />
               </button>
             )}
-            <h1 className="text-xl font-bold tracking-tight">{title || 'SISTEMA BARSA'}</h1>
+            <h1 className="text-lg font-black tracking-tight uppercase">{title || 'SISTEMA BARSA'}</h1>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
             
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-blue-100">{user.name}</p>
-              <p className="text-xs text-blue-300">{user.role}</p>
+            <div className="text-right hidden md:block mr-2 border-r border-blue-800 pr-4">
+              <p className="text-[10px] font-black text-blue-400 uppercase leading-none mb-1">Usuario Activo</p>
+              <p className="text-xs font-bold text-white leading-none">{user.name}</p>
             </div>
+
+            {/* El botón de actualizar solo aparece para el Administrador */}
+            {user.role === UserRole.ADMIN && (
+              <button
+                onClick={handleUpdate}
+                className="bg-blue-800 hover:bg-blue-700 p-2 rounded-lg transition-all shadow-md flex items-center gap-2 group"
+                title="Actualizar App"
+              >
+                <RefreshCw size={18} className="group-active:rotate-180 transition-transform duration-500" />
+                <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">Actualizar</span>
+              </button>
+            )}
+
             <button
               onClick={logout}
-              className="bg-red-600 hover:bg-red-700 p-2 rounded-lg transition-colors shadow-md"
+              className="bg-red-600 hover:bg-red-700 p-2 rounded-lg transition-colors shadow-md flex items-center gap-2"
               title="Cerrar Sesión"
             >
-              <LogOut size={20} />
+              <LogOut size={18} />
+              <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">Salir</span>
             </button>
           </div>
         </div>

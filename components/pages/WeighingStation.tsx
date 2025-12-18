@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { WeighingType, ClientOrder, WeighingRecord, UserRole, Batch } from '../../types';
 import { getOrders, saveOrder, getConfig, deleteOrder, getBatches, getUsers } from '../../services/storage';
-import { ArrowLeft, Save, Printer, Eye, Package, PackageOpen, AlertOctagon, User, Lock, FileText, Settings, Edit, DollarSign, CreditCard, Banknote, CheckCircle, X, Trash2, Plus, ListChecks, Bluetooth, BarChart3, Clock } from 'lucide-react';
+import { ArrowLeft, Save, Printer, Eye, Package, PackageOpen, AlertOctagon, User, Lock, FileText, Settings, Edit, DollarSign, CreditCard, Banknote, CheckCircle, X, Trash2, Plus, ListChecks, Bluetooth, BarChart3, Clock, Bird } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AuthContext } from '../../App';
@@ -279,55 +279,93 @@ const WeighingStation: React.FC = () => {
       <div className="p-4 max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-10 pb-6 border-b-2 border-slate-100">
             <div>
-                <h2 className="text-3xl font-black text-blue-950 uppercase tracking-tight">Estación de Clientes</h2>
-                <p className="text-slate-500 text-lg font-medium mt-1">
-                  {mode === WeighingType.BATCH ? `Lote Activo: ${currentBatch?.name || 'Cargando...'}` : `Modo: ${mode}`}
+                <h2 className="text-3xl font-black text-blue-950 uppercase tracking-tight">Selección de Cliente</h2>
+                <p className="text-slate-500 text-lg font-medium mt-1 uppercase">
+                  {mode === WeighingType.BATCH ? `Campaña: ${currentBatch?.name || 'Cargando...'}` : `Modo Directo: ${mode}`}
                 </p>
             </div>
             <div className="flex gap-4">
-                <button onClick={() => navigate('/config')} className="bg-white border-2 border-slate-100 text-slate-400 p-4 rounded-2xl hover:bg-slate-50 transition-all"><Settings size={28}/></button>
                 <button onClick={() => navigate('/')} className="bg-white border-2 border-slate-100 text-slate-700 px-8 py-4 rounded-2xl font-black text-xs uppercase shadow-sm flex items-center hover:bg-slate-50 transition-all"><ArrowLeft size={20} className="mr-3"/> Regresar</button>
             </div>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           <button 
             onClick={() => { setEditingOrder(null); setShowClientModal(true); }} 
-            className="flex flex-col items-center justify-center h-64 bg-slate-50 border-4 border-dashed border-slate-200 rounded-[3rem] hover:bg-white hover:border-blue-600 transition-all group shadow-inner"
+            className="flex flex-col items-center justify-center min-h-[460px] bg-white border-4 border-dashed border-slate-200 rounded-[3rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
           >
-            <div className="bg-white p-6 rounded-full shadow-lg mb-4 group-hover:scale-110 transition-transform">
-                <Plus size={40} className="text-blue-600" />
+            <div className="bg-blue-50 p-6 rounded-full shadow-inner mb-6 group-hover:scale-110 transition-transform">
+                <Plus size={48} className="text-blue-600" />
             </div>
-            <span className="font-black text-slate-500 uppercase text-xs tracking-widest">Registrar Nuevo Cliente</span>
+            <span className="font-black text-slate-500 uppercase text-sm tracking-widest">Nuevo Registro de Cliente</span>
           </button>
           
           {orders.map(order => {
               const oTotals = getTotals(order);
               const oClosed = order.status === 'CLOSED';
+              const percent = order.targetCrates > 0 ? Math.min((oTotals.fullUnitsCount / order.targetCrates) * 100, 100) : 0;
+              
               return (
-                  <div key={order.id} className={`bg-white rounded-[3rem] shadow-sm border-2 transition-all duration-300 overflow-hidden flex flex-col h-64 relative cursor-pointer ${oClosed ? 'opacity-70 bg-slate-50 border-slate-200' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
-                      <div className="bg-slate-900 p-6 flex justify-between items-center">
+                  <div key={order.id} className={`bg-white rounded-[2.5rem] shadow-lg border-2 transition-all duration-300 overflow-hidden flex flex-col min-h-[460px] relative cursor-pointer ${oClosed ? 'opacity-80' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
+                      <div className="bg-slate-900 p-6 flex justify-between items-start">
                          <div className="flex items-center space-x-4 overflow-hidden">
                              <div className={`p-3 rounded-2xl text-white shadow-lg shrink-0 ${oClosed ? 'bg-slate-700' : 'bg-blue-600'}`}>
                                  {oClosed ? <Lock size={20} /> : <User size={20} />}
                              </div>
-                             <h3 className="font-black text-white text-base leading-tight uppercase truncate">{order.clientName}</h3>
+                             <div className="overflow-hidden">
+                                <h3 className="font-black text-white text-lg leading-tight uppercase truncate max-w-[140px]">{order.clientName}</h3>
+                                <p className="text-slate-400 text-[9px] font-black uppercase mt-1 tracking-widest">Ref: #{order.id.slice(-6)}</p>
+                             </div>
                          </div>
                          <div className="flex gap-2 shrink-0">
-                             <button onClick={(e) => { e.stopPropagation(); setEditingOrder(order); setNewClientName(order.clientName); setTargetCrates(order.targetCrates); setShowClientModal(true); }} className="bg-slate-800 p-2.5 rounded-xl text-slate-400 hover:text-white transition-colors"><Edit size={16}/></button>
-                             <button onClick={(e) => handleDeleteClient(e, order.id)} className="bg-slate-800 p-2.5 rounded-xl text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                             <button onClick={(e) => { e.stopPropagation(); setEditingOrder(order); setNewClientName(order.clientName); setTargetCrates(order.targetCrates); setShowClientModal(true); }} className="bg-slate-800 p-2 rounded-xl text-slate-400 hover:text-white transition-colors"><Edit size={16}/></button>
+                             <button onClick={(e) => handleDeleteClient(e, order.id)} className="bg-slate-800 p-2 rounded-xl text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                          </div>
                       </div>
-                      <div className="p-8 flex-1 flex flex-col justify-center">
-                          <div className="grid grid-cols-2 gap-4">
-                              <div className="bg-blue-50/50 p-4 rounded-3xl text-center border border-blue-100/30">
-                                  <p className="text-[10px] font-black text-blue-500 uppercase leading-none mb-2 tracking-widest">Jabas</p>
-                                  <p className="font-black text-slate-900 text-3xl">{oTotals.fullUnitsCount}</p>
+
+                      <div className="p-8 flex-1 flex flex-col justify-between">
+                          <div>
+                              <div className="mb-6">
+                                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-3">
+                                      <span className="text-slate-500">Avance de Jabas</span>
+                                      <span className="text-blue-600">{oTotals.fullUnitsCount} / {order.targetCrates || '∞'}</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-50">
+                                      <div className={`h-full rounded-full bg-blue-500 transition-all duration-700`} style={{ width: `${percent}%` }}></div>
+                                  </div>
                               </div>
-                              <div className="bg-emerald-50/50 p-4 rounded-3xl text-center border border-emerald-100/30">
-                                  <p className="text-[10px] font-black text-emerald-500 uppercase leading-none mb-2 tracking-widest">Peso KG</p>
-                                  <p className="font-black text-slate-900 text-3xl">{oTotals.netWeight.toFixed(1)}</p>
+
+                              <div className="grid grid-cols-1 gap-3 mb-4">
+                                  <div className="bg-slate-50 border border-slate-100 p-4 rounded-3xl text-center shadow-inner">
+                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Aves Netas Pesadas</p>
+                                     <p className="text-3xl font-black text-slate-900 leading-none">{oTotals.totalBirdsFinal}</p>
+                                  </div>
                               </div>
+
+                              <div className="grid grid-cols-3 gap-3 text-center">
+                                  <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100">
+                                      <p className="text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1">Llenas</p>
+                                      <p className="font-black text-slate-800 text-xl leading-none">{oTotals.fullUnitsCount}</p>
+                                  </div>
+                                  <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100">
+                                      <p className="text-[9px] font-black text-orange-500 uppercase tracking-tighter mb-1">Vacías</p>
+                                      <p className="font-black text-slate-800 text-xl leading-none">{oTotals.emptyUnitsCount}</p>
+                                  </div>
+                                  <div className="bg-red-50 p-4 rounded-3xl border border-red-100">
+                                      <p className="text-[9px] font-black text-red-500 uppercase tracking-tighter mb-1">Merma</p>
+                                      <p className="font-black text-slate-800 text-xl leading-none">{oTotals.mortCount}</p>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <div className="mt-8 flex items-center justify-between border-t pt-6">
+                             <div>
+                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Peso Neto KG</p>
+                                 <p className="text-xl font-black text-slate-900">{oTotals.netWeight.toFixed(1)}</p>
+                             </div>
+                             <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${oClosed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
+                                 {oClosed ? 'Cerrado' : 'En Pesaje'}
+                             </div>
                           </div>
                       </div>
                   </div>
@@ -342,16 +380,16 @@ const WeighingStation: React.FC = () => {
                 <div className="space-y-8">
                     <div>
                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Nombre del Cliente</label>
-                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 font-bold text-slate-900 outline-none focus:border-blue-500 focus:bg-white transition-all text-xl" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Ej. Juan Pérez" autoFocus />
+                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all text-xl" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Ej. Juan Pérez" autoFocus />
                     </div>
                     <div>
                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Meta de Jabas (Opcional)</label>
-                        <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 font-bold text-slate-900 outline-none focus:border-blue-500 focus:bg-white transition-all text-xl" value={targetCrates || ''} onChange={e => setTargetCrates(Number(e.target.value))} placeholder="Ej. 100" />
+                        <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-5 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all text-xl" value={targetCrates || ''} onChange={e => setTargetCrates(Number(e.target.value))} placeholder="Ej. 100" />
                     </div>
                 </div>
                 <div className="flex flex-col gap-4 mt-12">
-                    <button onClick={handleSaveClient} className="bg-blue-950 text-white w-full py-5 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-sm tracking-widest active:scale-95 transition-all">GUARDAR CLIENTE</button>
-                    <button onClick={closeClientModal} className="w-full text-slate-400 font-bold py-2 text-xs uppercase tracking-widest">Cerrar</button>
+                    <button onClick={handleSaveClient} className="bg-blue-950 text-white w-full py-5 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-xs tracking-widest active:scale-95 transition-all">ACEPTAR Y GUARDAR</button>
+                    <button onClick={closeClientModal} className="w-full text-slate-400 font-bold py-2 text-xs uppercase tracking-widest">Cerrar Ventana</button>
                 </div>
              </div>
            </div>

@@ -1,7 +1,7 @@
 
 import { User, UserRole, Batch, ClientOrder, AppConfig, WeighingType } from '../types';
-import { initializeApp } from 'https://esm.sh/firebase@11.3.1/app';
-import { getDatabase, ref, onValue, set } from 'https://esm.sh/firebase@11.3.1/database';
+import { initializeApp, getApp, getApps } from 'https://esm.sh/firebase@11.3.1/app';
+import { getDatabase, ref, onValue, set, get } from 'https://esm.sh/firebase@11.3.1/database';
 
 const KEYS = {
   USERS: 'avi_users',
@@ -34,12 +34,13 @@ const arrayFromFirebase = (data: any) => {
 const initFirebase = (config: AppConfig) => {
     if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return;
     try {
-        if (!firebaseApp) {
+        if (getApps().length === 0) {
             firebaseApp = initializeApp(config.firebaseConfig);
-            firebaseDb = getDatabase(firebaseApp);
-            setupListeners();
-            console.log("Firebase Initialized Successfully");
+        } else {
+            firebaseApp = getApp();
         }
+        firebaseDb = getDatabase(firebaseApp);
+        setupListeners();
     } catch (e) {
         console.error("Firebase Init Error:", e);
     }
@@ -48,7 +49,7 @@ const initFirebase = (config: AppConfig) => {
 const setupListeners = () => {
     if (!firebaseDb) return;
     
-    // Escuchar cambios específicos para asegurar reactividad inmediata
+    // Listener de Usuarios
     onValue(ref(firebaseDb, 'data/users'), (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -72,6 +73,28 @@ const setupListeners = () => {
             window.dispatchEvent(new Event('avi_data_orders'));
         }
     });
+};
+
+// Función crítica para dispositivos nuevos: Descarga usuarios AHORA
+export const forceSyncUsers = async () => {
+    const config = getConfig();
+    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return;
+    
+    if (!firebaseDb) initFirebase(config);
+    if (!firebaseDb) return;
+
+    try {
+        const snapshot = await get(ref(firebaseDb, 'data/users'));
+        const data = snapshot.val();
+        if (data) {
+            localStorage.setItem(KEYS.USERS, JSON.stringify(arrayFromFirebase(data)));
+            window.dispatchEvent(new Event('avi_data_users'));
+            return true;
+        }
+    } catch (e) {
+        console.error("Force Sync Error:", e);
+    }
+    return false;
 };
 
 const pushToCloud = async (path: string, data: any) => {
@@ -118,6 +141,11 @@ seedData();
 
 export const getUsers = (): User[] => safeParse(KEYS.USERS, []);
 
+export const login = (u: string, p: string): User | null => {
+  const users = getUsers();
+  return users.find(user => user.username.toLowerCase() === u.toLowerCase() && user.password === p) || null;
+};
+
 export const saveUser = (user: User) => {
   const users = getUsers();
   const idx = users.findIndex(u => u.id === user.id);
@@ -132,11 +160,6 @@ export const deleteUser = (id: string) => {
   localStorage.setItem(KEYS.USERS, JSON.stringify(users));
   pushToCloud('users', users);
   window.dispatchEvent(new Event('avi_data_users'));
-};
-
-export const login = (u: string, p: string): User | null => {
-  const users = getUsers();
-  return users.find(user => user.username.toLowerCase() === u.toLowerCase() && user.password === p) || null;
 };
 
 export const getBatches = (): Batch[] => safeParse(KEYS.BATCHES, []);
@@ -185,7 +208,7 @@ export const getConfig = (): AppConfig => {
 
 export const saveConfig = (cfg: AppConfig) => {
   localStorage.setItem(KEYS.CONFIG, JSON.stringify(cfg));
-  if (cfg.cloudEnabled) initFirebase(cfg);
+  initFirebase(cfg);
   window.dispatchEvent(new Event('avi_data_config'));
 };
 

@@ -42,14 +42,20 @@ const Configuration: React.FC = () => {
   };
 
   const handleManualUpload = async () => {
-      if (!confirm("Esta acción subirá todos sus datos locales (Usuarios, Lotes y Clientes) a la Nube. ¿Está seguro de continuar?")) return;
+      if (!confirm("Esta acción subirá todos sus datos locales (Usuarios, Lotes y Clientes) a la Nube. Si ya hay datos en la nube, serán sobrescritos. ¿Desea continuar?")) return;
       
       setIsUploading(true);
       try {
           await uploadLocalDataToCloud();
-          alert("¡Datos subidos exitosamente! Ahora sus otros dispositivos pueden sincronizarse.");
+          alert("¡BASE DE DATOS SUBIDA CON ÉXITO! Ahora sus otros dispositivos pueden conectarse y ver esta información.");
       } catch (e) {
-          alert("Error al subir datos: " + (e as Error).message);
+          const errorMsg = (e as Error).message;
+          console.error("Upload Error Details:", e);
+          if (errorMsg.includes("permission_denied")) {
+              alert("ERROR DE PERMISOS: La base de datos de Firebase no permite la escritura. Verifique las 'Rules' en su consola de Firebase (deben estar en true).");
+          } else {
+              alert("Error al subir datos: " + errorMsg);
+          }
       } finally {
           setIsUploading(false);
       }
@@ -119,9 +125,9 @@ const Configuration: React.FC = () => {
                         <div className="flex items-start gap-4">
                             <UploadCloud className="text-emerald-500 shrink-0" size={32}/>
                             <div>
-                                <h4 className="font-black text-emerald-900 text-xs uppercase mb-1">Cargar datos existentes</h4>
+                                <h4 className="font-black text-emerald-900 text-xs uppercase mb-1">Subida de datos a la Nube</h4>
                                 <p className="text-[10px] text-emerald-700 leading-relaxed font-bold uppercase tracking-tight">
-                                    Presione para subir su información local actual a la nube por primera vez.
+                                    Use este botón si ya tiene usuarios o lotes en este equipo y quiere que aparezcan en la nube.
                                 </p>
                             </div>
                         </div>
@@ -131,7 +137,7 @@ const Configuration: React.FC = () => {
                             className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                         >
                             {isUploading ? <Loader2 className="animate-spin" size={16}/> : <Database size={16}/>}
-                            {isUploading ? 'Subiendo...' : 'Subir base de datos a Nube'}
+                            {isUploading ? 'Subiendo...' : 'Subir Base Local a Nube'}
                         </button>
                     </div>
                 )}
@@ -140,9 +146,11 @@ const Configuration: React.FC = () => {
                     <div className="flex items-start gap-4">
                         <Smartphone className="text-blue-500 shrink-0" size={24}/>
                         <div>
-                            <h4 className="font-black text-blue-900 text-xs uppercase mb-1">¿Cómo conectar otro celular o tablet?</h4>
+                            <h4 className="font-black text-blue-900 text-xs uppercase mb-1">¿Cómo conectar otros equipos?</h4>
                             <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
-                                Una vez que haya subido sus datos con el botón verde de arriba, instale la app en otro dispositivo, configure estos mismos campos de Firebase y podrá entrar con los mismos usuarios.
+                                1. Suba sus datos con el botón verde.<br/>
+                                2. En el otro equipo, ponga estos mismos datos de Firebase.<br/>
+                                3. Inicie sesión con su usuario de siempre.
                             </p>
                         </div>
                     </div>
@@ -156,7 +164,7 @@ const Configuration: React.FC = () => {
                         </div>
                         <div>
                             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1.5 ml-1 tracking-widest">Project ID</label>
-                            <input value={config.firebaseConfig.projectId} onChange={e => setConfig({...config, firebaseConfig: {...config.firebaseConfig, projectId: e.target.value}})} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-mono text-[10px] focus:border-blue-500 outline-none" placeholder="avícola-barsa-42" />
+                            <input value={config.firebaseConfig.projectId} onChange={e => setConfig({...config, firebaseConfig: {...config.firebaseConfig, projectId: e.target.value}})} className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-mono text-[10px] focus:border-blue-500 outline-none" placeholder="avícola-barsa" />
                         </div>
                     </div>
                     <div className="space-y-4">

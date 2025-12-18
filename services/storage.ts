@@ -1,6 +1,6 @@
 
 import { User, UserRole, Batch, ClientOrder, AppConfig, WeighingType } from '../types';
-import { initializeApp, getApp, getApps } from 'https://esm.sh/firebase@11.3.1/app';
+import { initializeApp, getApp, getApps, deleteApp } from 'https://esm.sh/firebase@11.3.1/app';
 import { getDatabase, ref, onValue, set, get } from 'https://esm.sh/firebase@11.3.1/database';
 
 const KEYS = {
@@ -29,16 +29,30 @@ const arrayFromFirebase = (data: any) => {
     return Object.values(data);
 };
 
+/**
+ * Limpia objetos para Firebase eliminando propiedades 'undefined' 
+ * que causan errores en la subida.
+ */
+const sanitizeForFirebase = (data: any) => {
+    return JSON.parse(JSON.stringify(data, (key, value) => {
+        return value === undefined ? null : value;
+    }));
+};
+
 // --- Firebase Sync Logic ---
 
-const initFirebase = (config: AppConfig) => {
+const initFirebase = async (config: AppConfig) => {
     if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return;
     try {
-        if (getApps().length === 0) {
-            firebaseApp = initializeApp(config.firebaseConfig);
-        } else {
-            firebaseApp = getApp();
+        // Si ya hay una app, la eliminamos para refrescar la configuración
+        const apps = getApps();
+        if (apps.length > 0) {
+            for (const app of apps) {
+                await deleteApp(app);
+            }
         }
+        
+        firebaseApp = initializeApp(config.firebaseConfig);
         firebaseDb = getDatabase(firebaseApp);
         setupListeners();
     } catch (e) {
@@ -78,10 +92,10 @@ const setupListeners = () => {
 // Función crítica para dispositivos nuevos: Descarga usuarios AHORA
 export const forceSyncUsers = async () => {
     const config = getConfig();
-    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return;
+    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return false;
     
-    if (!firebaseDb) initFirebase(config);
-    if (!firebaseDb) return;
+    if (!firebaseDb) await initFirebase(config);
+    if (!firebaseDb) return false;
 
     try {
         const snapshot = await get(ref(firebaseDb, 'data/users'));
@@ -104,21 +118,27 @@ export const uploadLocalDataToCloud = async () => {
         throw new Error("La nube no está configurada o activada.");
     }
     
-    if (!firebaseDb) initFirebase(config);
-    if (!firebaseDb) throw new Error("No se pudo conectar con la base de datos.");
+    // Asegurar conexión fresca
+    await initFirebase(config);
+    if (!firebaseDb) throw new Error("No se pudo conectar con la base de datos. Verifique su internet.");
 
     try {
-        const users = getUsers();
-        const batches = getBatches();
-        const orders = getOrders();
+        // Limpiamos los datos de cualquier valor 'undefined' antes de subir
+        const users = sanitizeForFirebase(getUsers());
+        const batches = sanitizeForFirebase(getBatches());
+        const orders = sanitizeForFirebase(getOrders());
 
+        // Subida en bloque
         await set(ref(firebaseDb, 'data/users'), users);
         await set(ref(firebaseDb, 'data/batches'), batches);
         await set(ref(firebaseDb, 'data/orders'), orders);
         
         return true;
-    } catch (e) {
+    } catch (e: any) {
         console.error("Manual Upload Error:", e);
+        if (e.message?.includes('permission_denied')) {
+            throw new Error("Error de permisos: Verifique que las reglas de su base de datos permitan lectura/escritura pública.");
+        }
         throw e;
     }
 };
@@ -127,7 +147,8 @@ const pushToCloud = async (path: string, data: any) => {
     const config = getConfig();
     if (!config.cloudEnabled || !firebaseDb) return;
     try {
-        await set(ref(firebaseDb, `data/${path}`), data);
+        // Sanitizamos el dato individual antes de subirlo automáticamente
+        await set(ref(firebaseDb, `data/${path}`), sanitizeForFirebase(data));
     } catch (e) {
         console.error("Cloud Push Error:", e);
     }
@@ -228,7 +249,6 @@ export const getConfig = (): AppConfig => {
         seedData();
         return safeParse(KEYS.CONFIG, {});
     }
-    if (cfg.cloudEnabled && !firebaseApp) initFirebase(cfg);
     return cfg;
 };
 

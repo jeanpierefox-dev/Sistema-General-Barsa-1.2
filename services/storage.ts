@@ -1,6 +1,6 @@
 
 import { User, UserRole, Batch, ClientOrder, AppConfig, WeighingType } from '../types';
-import { initializeApp, getApp, getApps, deleteApp } from 'https://esm.sh/firebase@11.3.1/app';
+import { initializeApp, getApps, deleteApp } from 'https://esm.sh/firebase@11.3.1/app';
 import { getDatabase, ref, onValue, set, get } from 'https://esm.sh/firebase@11.3.1/database';
 
 const KEYS = {
@@ -29,20 +29,16 @@ const arrayFromFirebase = (data: any) => {
     return Object.values(data);
 };
 
-/**
- * Limpia objetos para Firebase eliminando propiedades 'undefined' 
- * que causan errores en la subida.
- */
 const sanitizeForFirebase = (data: any) => {
     return JSON.parse(JSON.stringify(data, (key, value) => {
         return value === undefined ? null : value;
     }));
 };
 
-// --- Firebase Sync Logic ---
+// --- Lógica de Conexión ---
 
 const initFirebase = async (config: AppConfig) => {
-    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return;
+    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return null;
     try {
         const apps = getApps();
         if (apps.length > 0) {
@@ -54,9 +50,20 @@ const initFirebase = async (config: AppConfig) => {
         firebaseApp = initializeApp(config.firebaseConfig);
         firebaseDb = getDatabase(firebaseApp);
         setupListeners();
+        return firebaseDb;
     } catch (e) {
-        console.error("Firebase Init Error:", e);
+        console.error("Error al inicializar Firebase:", e);
+        return null;
     }
+};
+
+/**
+ * Asegura que la base de datos esté conectada antes de operar.
+ */
+const ensureConnected = async () => {
+    if (firebaseDb) return firebaseDb;
+    const config = getConfig();
+    return await initFirebase(config);
 };
 
 const setupListeners = () => {
@@ -87,15 +94,25 @@ const setupListeners = () => {
     });
 };
 
+// --- Funciones de Sincronización ---
+
+export const testCloudConnection = async (): Promise<{success: boolean, message: string}> => {
+    const db = await ensureConnected();
+    if (!db) return { success: false, message: "No se pudo inicializar Firebase. Verifique su API Key y Database URL." };
+    try {
+        await get(ref(db, '.info/connected'));
+        return { success: true, message: "¡Conexión exitosa con la nube!" };
+    } catch (e: any) {
+        return { success: false, message: e.message || "Error de conexión." };
+    }
+};
+
 export const forceSyncUsers = async () => {
-    const config = getConfig();
-    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return false;
-    
-    if (!firebaseDb) await initFirebase(config);
-    if (!firebaseDb) return false;
+    const db = await ensureConnected();
+    if (!db) return false;
 
     try {
-        const snapshot = await get(ref(firebaseDb, 'data/users'));
+        const snapshot = await get(ref(db, 'data/users'));
         const data = snapshot.val();
         if (data) {
             localStorage.setItem(KEYS.USERS, JSON.stringify(arrayFromFirebase(data)));
@@ -103,70 +120,58 @@ export const forceSyncUsers = async () => {
             return true;
         }
     } catch (e) {
-        console.error("Force Sync Error:", e);
+        console.error("Error en sincronización forzada:", e);
     }
     return false;
 };
 
 export const uploadLocalDataToCloud = async () => {
-    const config = getConfig();
-    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) {
-        throw new Error("La nube no está configurada o activada.");
-    }
-    
-    await initFirebase(config);
-    if (!firebaseDb) throw new Error("No se pudo conectar con la base de datos.");
+    const db = await ensureConnected();
+    if (!db) throw new Error("No hay conexión con la nube. Verifique su internet y configuración de Firebase.");
 
     try {
         const users = sanitizeForFirebase(getUsers());
         const batches = sanitizeForFirebase(getBatches());
         const orders = sanitizeForFirebase(getOrders());
 
-        await set(ref(firebaseDb, 'data/users'), users);
-        await set(ref(firebaseDb, 'data/batches'), batches);
-        await set(ref(firebaseDb, 'data/orders'), orders);
+        await set(ref(db, 'data/users'), users);
+        await set(ref(db, 'data/batches'), batches);
+        await set(ref(db, 'data/orders'), orders);
         
         return true;
     } catch (e: any) {
-        console.error("Manual Upload Error:", e);
+        console.error("Error al subir datos:", e);
         if (e.message?.includes('permission_denied')) {
-            throw new Error("Error de permisos: Verifique que las reglas de su base de datos permitan lectura/escritura.");
+            throw new Error("PERMISOS DENEGADOS: Cambie las 'Rules' de su Firebase Realtime Database a true.");
         }
         throw e;
     }
 };
 
-// FUNCIÓN PARA FORMATEAR LA NUBE
 export const formatCloudData = async () => {
-    const config = getConfig();
-    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) {
-        throw new Error("La nube no está configurada.");
-    }
-    
-    if (!firebaseDb) await initFirebase(config);
-    if (!firebaseDb) throw new Error("No hay conexión con la base de datos.");
+    const db = await ensureConnected();
+    if (!db) throw new Error("No hay conexión con la base de datos.");
 
     try {
-        // Al setear el nodo 'data' en null, Firebase borra todo su contenido
-        await set(ref(firebaseDb, 'data'), null);
+        await set(ref(db, 'data'), null);
         return true;
     } catch (e: any) {
-        console.error("Cloud Format Error:", e);
+        console.error("Error al formatear nube:", e);
         throw e;
     }
 };
 
 const pushToCloud = async (path: string, data: any) => {
-    const config = getConfig();
-    if (!config.cloudEnabled || !firebaseDb) return;
+    const db = await ensureConnected();
+    if (!db) return;
     try {
-        await set(ref(firebaseDb, `data/${path}`), sanitizeForFirebase(data));
+        await set(ref(db, `data/${path}`), sanitizeForFirebase(data));
     } catch (e) {
         console.error("Cloud Push Error:", e);
     }
 };
 
-// --- Seed Data ---
+// --- Seed Data & Exported Methods ---
 
 const seedData = () => {
   const existingUsers = safeParse(KEYS.USERS, []);
@@ -196,10 +201,7 @@ const seedData = () => {
 
 seedData();
 
-// --- Exported Methods ---
-
 export const getUsers = (): User[] => safeParse(KEYS.USERS, []);
-
 export const login = (u: string, p: string): User | null => {
   const users = getUsers();
   return users.find(user => user.username.toLowerCase() === u.toLowerCase() && user.password === p) || null;

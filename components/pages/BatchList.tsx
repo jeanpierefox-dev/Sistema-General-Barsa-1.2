@@ -27,8 +27,9 @@ const BatchList: React.FC = () => {
           const subordinateIds = allUsers.filter(u => u.parentId === user.id).map(u => u.id);
           setBatches(allBatches.filter(b => b.createdBy === user.id || subordinateIds.includes(b.createdBy || '')));
       } else {
-          // Operador solo ve sus lotes
-          setBatches(allBatches.filter(b => b.createdBy === user?.id));
+          // Operador ve sus propios lotes Y los de su supervisor (parentId)
+          const mySupervisorId = user?.parentId;
+          setBatches(allBatches.filter(b => b.createdBy === user?.id || b.createdBy === mySupervisorId));
       }
   };
 

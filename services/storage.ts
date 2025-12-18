@@ -39,6 +39,13 @@ const sanitizeForFirebase = (data: any) => {
 
 const initFirebase = async (config: AppConfig) => {
     if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return null;
+    
+    // Validación básica de URL para evitar errores comunes
+    if (config.firebaseConfig.databaseURL && !config.firebaseConfig.databaseURL.startsWith('https://')) {
+        console.error("URL de base de datos inválida");
+        return null;
+    }
+
     try {
         const apps = getApps();
         if (apps.length > 0) {
@@ -57,9 +64,6 @@ const initFirebase = async (config: AppConfig) => {
     }
 };
 
-/**
- * Asegura que la base de datos esté conectada antes de operar.
- */
 const ensureConnected = async () => {
     if (firebaseDb) return firebaseDb;
     const config = getConfig();
@@ -94,23 +98,37 @@ const setupListeners = () => {
     });
 };
 
-// --- Funciones de Sincronización ---
-
 export const testCloudConnection = async (): Promise<{success: boolean, message: string}> => {
-    const db = await ensureConnected();
-    if (!db) return { success: false, message: "No se pudo inicializar Firebase. Verifique su API Key y Database URL." };
+    const config = getConfig();
+    if (!config.firebaseConfig.databaseURL || !config.firebaseConfig.apiKey) {
+        return { success: false, message: "Faltan datos de configuración (API Key o URL)." };
+    }
+    
     try {
-        await get(ref(db, '.info/connected'));
-        return { success: true, message: "¡Conexión exitosa con la nube!" };
+        const db = await ensureConnected();
+        if (!db) throw new Error("No se pudo crear la instancia de base de datos.");
+        
+        // Intentamos leer una ruta de sistema para probar conexión y reglas
+        const connectedRef = ref(db, '.info/connected');
+        const snapshot = await get(connectedRef);
+        
+        if (snapshot.exists()) {
+            return { success: true, message: "¡Conexión exitosa! El sistema está vinculado a Firebase." };
+        } else {
+            return { success: false, message: "Conectado, pero no hay respuesta del servidor. Revise su conexión a Internet." };
+        }
     } catch (e: any) {
-        return { success: false, message: e.message || "Error de conexión." };
+        console.error("Test Error:", e);
+        if (e.message?.includes('permission_denied')) {
+            return { success: false, message: "ERROR DE PERMISOS: Verifique que las Reglas (Rules) de su Realtime Database en Firebase sean true." };
+        }
+        return { success: false, message: "Error: " + (e.message || "No se pudo conectar. Verifique que la URL de la base de datos sea correcta.") };
     }
 };
 
 export const forceSyncUsers = async () => {
     const db = await ensureConnected();
     if (!db) return false;
-
     try {
         const snapshot = await get(ref(db, 'data/users'));
         const data = snapshot.val();
@@ -120,29 +138,25 @@ export const forceSyncUsers = async () => {
             return true;
         }
     } catch (e) {
-        console.error("Error en sincronización forzada:", e);
+        console.error("Sync Error:", e);
     }
     return false;
 };
 
 export const uploadLocalDataToCloud = async () => {
     const db = await ensureConnected();
-    if (!db) throw new Error("No hay conexión con la nube. Verifique su internet y configuración de Firebase.");
-
+    if (!db) throw new Error("No hay conexión con la nube.");
     try {
         const users = sanitizeForFirebase(getUsers());
         const batches = sanitizeForFirebase(getBatches());
         const orders = sanitizeForFirebase(getOrders());
-
         await set(ref(db, 'data/users'), users);
         await set(ref(db, 'data/batches'), batches);
         await set(ref(db, 'data/orders'), orders);
-        
         return true;
     } catch (e: any) {
-        console.error("Error al subir datos:", e);
         if (e.message?.includes('permission_denied')) {
-            throw new Error("PERMISOS DENEGADOS: Cambie las 'Rules' de su Firebase Realtime Database a true.");
+            throw new Error("REGLAS DE FIREBASE INCORRECTAS: Debe poner las Rules en 'true'.");
         }
         throw e;
     }
@@ -150,13 +164,11 @@ export const uploadLocalDataToCloud = async () => {
 
 export const formatCloudData = async () => {
     const db = await ensureConnected();
-    if (!db) throw new Error("No hay conexión con la base de datos.");
-
+    if (!db) throw new Error("Sin conexión.");
     try {
         await set(ref(db, 'data'), null);
         return true;
     } catch (e: any) {
-        console.error("Error al formatear nube:", e);
         throw e;
     }
 };
@@ -171,15 +183,14 @@ const pushToCloud = async (path: string, data: any) => {
     }
 };
 
-// --- Seed Data & Exported Methods ---
+// --- Métodos Exportados ---
 
 const seedData = () => {
   const existingUsers = safeParse(KEYS.USERS, []);
   if (existingUsers.length === 0) {
-    const defaultModes = [WeighingType.BATCH, WeighingType.SOLO_POLLO, WeighingType.SOLO_JABAS];
     const admin: User = {
       id: 'admin-1', username: 'admin', password: '123',
-      name: 'Administrador Barsa', role: UserRole.ADMIN, allowedModes: defaultModes
+      name: 'Administrador Barsa', role: UserRole.ADMIN, allowedModes: [WeighingType.BATCH, WeighingType.SOLO_POLLO, WeighingType.SOLO_JABAS]
     };
     localStorage.setItem(KEYS.USERS, JSON.stringify([admin]));
   }

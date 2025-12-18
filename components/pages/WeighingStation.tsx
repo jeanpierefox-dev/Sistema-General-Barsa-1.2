@@ -191,46 +191,46 @@ const WeighingStation: React.FC = () => {
       const navy: [number, number, number] = [23, 37, 84];
       const gray: [number, number, number] = [100, 100, 100];
 
-      // Cabecera Centrada Total
-      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 12, 24, 24); } catch {} }
+      // Cabecera Centrada
+      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 10, 24, 24); } catch {} }
       doc.setFont("helvetica", "bold").setFontSize(18).setTextColor(navy[0], navy[1], navy[2]);
-      doc.text(config.companyName.toUpperCase(), 105, 44, { align: 'center' });
+      doc.text(config.companyName.toUpperCase(), 105, 42, { align: 'center' });
       doc.setFontSize(9).setTextColor(gray[0], gray[1], gray[2]).setFont("helvetica", "normal");
-      doc.text("REPORTE DETALLADO DE OPERACIÓN AVÍCOLA", 105, 49, { align: 'center' });
-      doc.text(`Campaña: ${currentBatch?.name || 'Venta Directa'} | ID: #${order.id.slice(-6)}`, 105, 54, { align: 'center' });
+      doc.text("SISTEMA DE CONTROL AVÍCOLA PROFESIONAL", 105, 47, { align: 'center' });
+      doc.text(`Campaña: ${currentBatch?.name || 'Venta Directa'} | ID: #${order.id.slice(-6)}`, 105, 52, { align: 'center' });
 
-      doc.setDrawColor(220).line(15, 60, 195, 60);
+      doc.setDrawColor(220).line(15, 58, 195, 58);
 
       // Info Cliente
       doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(0);
-      doc.text("DATOS DEL DESPACHO", 15, 68);
+      doc.text("INFORMACIÓN DE DESPACHO", 15, 66);
       doc.setFont("helvetica", "normal").setFontSize(8.5);
-      doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 15, 74);
-      doc.text(`FECHA EMISIÓN: ${new Date().toLocaleString()}`, 15, 79);
-      doc.text(`CONDICIÓN: ${order.paymentMethod || 'PENDIENTE'}`, 130, 74);
-      doc.text(`PRECIO ACORDADO: S/. ${order.pricePerKg.toFixed(2)}`, 130, 79);
+      doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 15, 72);
+      doc.text(`FECHA EMISIÓN: ${new Date().toLocaleString()}`, 15, 77);
+      doc.text(`CONDICIÓN: ${order.paymentMethod || 'PENDIENTE'}`, 130, 72);
+      doc.text(`PRECIO x KG: S/. ${order.pricePerKg.toFixed(2)}`, 130, 77);
 
-      // 1. RESUMEN CONSOLIDADO (CUADRO PRINCIPAL ARRIBA)
-      const summaryY = 88;
+      // 1. CUADRO RESUMEN CONSOLIDADO (MÁXIMA PRIORIDAD)
+      const summaryY = 85;
       autoTable(doc, {
           startY: summaryY,
           theme: 'grid',
-          headStyles: { fillColor: navy, fontSize: 9, halign: 'center', cellPadding: 2 },
+          headStyles: { fillColor: navy, fontSize: 8.5, halign: 'center' },
           styles: { fontSize: 8.5, halign: 'center', cellPadding: 2 },
-          head: [['CONCEPTO OPERATIVO', 'UNIDADES', 'PESO TOTAL (KG)']],
+          head: [['CATEGORÍA', 'CANTIDAD (UNDS)', 'PESO TOTAL (KG)']],
           body: [
-              ['PESO BRUTO (JABAS LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
-              ['TARA (JABAS VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
+              ['PESO BRUTO (LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
+              ['TARA (VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
               ['MERMA / MUERTOS', totals.mortCount, totals.totalMortWeight.toFixed(2)],
-              [{ content: 'TOTAL NETO FACTURABLE', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
-              [{ content: 'CANTIDAD AVES NETAS', styles: { fontStyle: 'bold' } }, { content: totals.totalBirdsFinal.toString(), styles: { fontStyle: 'bold' } }, { content: 'Prom: ' + totals.avgWeight.toFixed(3) + ' kg', styles: { fontSize: 7 } }]
+              [{ content: 'PESO NETO TOTAL', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
+              [{ content: 'POLLOS NETOS ESTIMADOS', styles: { fontStyle: 'bold' } }, { content: totals.totalBirdsFinal.toString(), styles: { fontStyle: 'bold' } }, { content: 'Prom: ' + totals.avgWeight.toFixed(3) + ' kg', styles: { fontSize: 7 } }]
           ],
           margin: { left: 15, right: 15 }
       });
 
       // 2. MATRIZ DE AUDITORÍA UNIFICADA (DETALLE COMPACTO)
       const detailY = (doc as any).lastAutoTable.finalY + 10;
-      doc.setFont("helvetica", "bold").setFontSize(10).text("DETALLE DE AUDITORÍA (PESADAS INDIVIDUALES)", 15, detailY);
+      doc.setFont("helvetica", "bold").setFontSize(10).text("DESGLOSE DE AUDITORÍA (POR PESADA)", 15, detailY);
       
       const full = order.records.filter(r => r.type === 'FULL');
       const empty = order.records.filter(r => r.type === 'EMPTY');
@@ -251,7 +251,7 @@ const WeighingStation: React.FC = () => {
 
       autoTable(doc, {
           startY: detailY + 4,
-          theme: 'striped',
+          theme: 'grid',
           headStyles: { fillColor: [60, 60, 60], fontSize: 7, halign: 'center', cellPadding: 1 },
           styles: { fontSize: 7, halign: 'center', cellPadding: 1 },
           head: [['# LLENA', 'PESO KG', '# TARA', 'PESO KG', '# MERMA', 'PESO KG']],
@@ -264,25 +264,25 @@ const WeighingStation: React.FC = () => {
           }
       });
 
-      // Firmas al final del documento
+      // Firmas
       const finalY = Math.min(270, (doc as any).lastAutoTable.finalY + 25);
       doc.setDrawColor(200).line(30, finalY, 80, finalY).line(130, finalY, 180, finalY);
       doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(gray[0], gray[1], gray[2]);
       doc.text("FIRMA DESPACHO", 55, finalY + 5, { align: 'center' });
       doc.text("FIRMA CLIENTE", 155, finalY + 5, { align: 'center' });
 
-      doc.save(`Reporte_Corporativo_${order.clientName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Reporte_${order.clientName.replace(/\s+/g, '_')}.pdf`);
   };
 
   const generateCheckoutTicket = (order: ClientOrder) => {
     const totals = getTotals(order);
-    const doc = new jsPDF({ unit: 'mm', format: [80, 140] }); // Formato más compacto
+    const doc = new jsPDF({ unit: 'mm', format: [80, 140] });
     let y = 8;
     
     if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 32, y, 16, 16); y += 18; } catch {} }
     doc.setFontSize(9).setFont("helvetica", "bold").text(config.companyName.toUpperCase(), 40, y, { align: 'center' });
     y += 4;
-    doc.setFontSize(7).setFont("helvetica", "normal").text("COMPROBANTE DE VENTA", 40, y, { align: 'center' });
+    doc.setFontSize(7).setFont("helvetica", "normal").text("COMPROBANTE DE DESPACHO", 40, y, { align: 'center' });
     y += 6;
 
     doc.setFontSize(7).setFont("helvetica", "bold");
@@ -308,8 +308,8 @@ const WeighingStation: React.FC = () => {
     y = (doc as any).lastAutoTable.finalY + 6;
     doc.setFontSize(7.5).setFont("helvetica", "bold");
     doc.text(`AVES NETAS: ${totals.totalBirdsFinal}`, 5, y); y += 4;
-    doc.text(`PRECIO KILO: S/. ${order.pricePerKg.toFixed(2)}`, 5, y); y += 5;
-    doc.setFontSize(9).text(`TOTAL PAGAR: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
+    doc.text(`PRECIO KG: S/. ${order.pricePerKg.toFixed(2)}`, 5, y); y += 5;
+    doc.setFontSize(9).text(`TOTAL: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
     
     doc.save(`Ticket_${order.clientName}.pdf`);
   };
@@ -370,7 +370,6 @@ const WeighingStation: React.FC = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Tarjeta Nuevo Registro Compacta */}
           <button 
             onClick={() => { setEditingOrder(null); setShowClientModal(true); }} 
             className="flex flex-col items-center justify-center min-h-[320px] bg-white border-4 border-dashed border-slate-200 rounded-[2.5rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
@@ -411,7 +410,7 @@ const WeighingStation: React.FC = () => {
                                       <span className="text-slate-500">Jabas</span>
                                       <span className="text-blue-600 font-black">{oTotals.fullUnitsCount} / {order.targetCrates || '∞'}</span>
                                   </div>
-                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-50">
+                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-50 shadow-inner">
                                       <div className={`h-full rounded-full bg-blue-500 transition-all duration-700`} style={{ width: `${percent}%` }}></div>
                                   </div>
                               </div>
@@ -567,7 +566,6 @@ const WeighingStation: React.FC = () => {
                       <button onClick={() => setShowDetailModal(false)} className="p-2 hover:bg-slate-800 rounded-xl transition-colors"><X/></button>
                   </div>
                   <div className="p-6 overflow-y-auto space-y-6">
-                      {/* Cuadros Consolidados en UI */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="bg-blue-50 p-6 rounded-[2rem] border-2 border-blue-200 text-center shadow-inner">
                               <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><Package size={14}/> Solo Llenas</p>
@@ -638,40 +636,70 @@ const WeighingStation: React.FC = () => {
 
       {showCheckoutModal && (
           <div className="fixed inset-0 bg-blue-950/80 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-              <div className="bg-white rounded-[2.5rem] w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in flex flex-col">
-                  <div className="p-5 bg-slate-900 text-white flex justify-between items-center"><h3 className="font-black text-xs uppercase tracking-widest">Liquidación</h3><button onClick={() => setShowCheckoutModal(false)} className="p-1.5 hover:bg-slate-800 rounded-xl"><X size={20}/></button></div>
-                  <div className="p-6 space-y-6">
-                      <div className="bg-slate-50 p-4 rounded-2xl border-2 border-dashed border-slate-200">
-                          <p className="text-[9px] font-black text-slate-400 uppercase mb-3 text-center tracking-widest italic underline underline-offset-4">Ticket Consolidado</p>
-                          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2">
-                             <div className="flex justify-between border-b pb-2 mb-2">
-                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">CLIENTE:</span>
-                                 <span className="text-[10px] font-black text-slate-900 uppercase">{activeOrder?.clientName}</span>
+              <div className="bg-white rounded-[2.5rem] w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl animate-fade-in flex flex-col">
+                  <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                      <h3 className="font-black text-base uppercase tracking-widest flex items-center gap-2"><DollarSign className="text-emerald-400"/> Liquidación de Venta</h3>
+                      <button onClick={() => setShowCheckoutModal(false)} className="p-1.5 hover:bg-slate-800 rounded-xl transition-colors"><X size={24}/></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto space-y-8 scrollbar-hide">
+                      <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-dashed border-slate-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase mb-4 text-center tracking-widest italic underline underline-offset-4">Resumen de Mercadería</p>
+                          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                             <div className="flex justify-between border-b pb-3">
+                                 <span className="text-[10px] font-black text-slate-400 uppercase">CLIENTE:</span>
+                                 <span className="text-sm font-black text-slate-900 uppercase">{activeOrder?.clientName}</span>
                              </div>
-                             <div className="space-y-1.5 text-[9px] font-bold text-slate-600">
-                                 <div className="flex justify-between"><span>Peso Bruto:</span><span>{totals.totalFullWeight.toFixed(2)} KG</span></div>
-                                 <div className="flex justify-between text-orange-600"><span>Peso Tara:</span><span>- {totals.totalEmptyWeight.toFixed(2)} KG</span></div>
-                                 <div className="flex justify-between text-red-600"><span>Peso Merma:</span><span>- {totals.totalMortWeight.toFixed(2)} KG</span></div>
-                                 <div className="flex justify-between pt-1 border-t font-black text-slate-900"><span>Peso Neto:</span><span>{totals.netWeight.toFixed(2)} KG</span></div>
+                             <div className="space-y-3 text-xs font-bold text-slate-600">
+                                 <div className="flex justify-between"><span>Peso Bruto Acumulado:</span><span className="font-mono">{totals.totalFullWeight.toFixed(2)} KG</span></div>
+                                 <div className="flex justify-between text-orange-600"><span>Menos Tara (Vacías):</span><span className="font-mono">- {totals.totalEmptyWeight.toFixed(2)} KG</span></div>
+                                 <div className="flex justify-between text-red-600"><span>Menos Merma / Muertos:</span><span className="font-mono">- {totals.totalMortWeight.toFixed(2)} KG</span></div>
+                                 <div className="flex justify-between pt-3 border-t font-black text-slate-900 text-sm"><span>Peso Neto Total:</span><span className="font-mono">{totals.netWeight.toFixed(2)} KG</span></div>
                              </div>
-                             <div className="pt-2 bg-slate-900 p-2.5 rounded-lg flex justify-between items-center text-white">
-                                 <span className="text-[8px] font-black uppercase tracking-tighter">TOTAL:</span>
-                                 <span className="text-base font-black text-emerald-400">S/. {(totals.netWeight * (parseFloat(checkoutPrice) || 0)).toFixed(2)}</span>
+                             <div className="pt-4 bg-slate-900 p-4 rounded-xl flex justify-between items-center text-white shadow-lg">
+                                 <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Total a Pagar:</span>
+                                 <span className="text-2xl font-black text-emerald-400 font-mono">S/. {(totals.netWeight * (parseFloat(checkoutPrice) || 0)).toFixed(2)}</span>
                              </div>
                           </div>
                       </div>
-                      <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2 block">Precio x Kilo (S/.)</label>
-                          <input type="number" step="0.01" className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-4 font-black text-xl text-slate-900 outline-none focus:border-emerald-500 transition-all" value={checkoutPrice} onChange={e => setCheckoutPrice(e.target.value)} autoFocus />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => setCheckoutPaymentMethod('CASH')} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1.5 transition-all ${checkoutPaymentMethod === 'CASH' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-400'}`}><Banknote size={20}/><span className="text-[9px] font-black uppercase">Contado</span></button>
-                          <button onClick={() => setCheckoutPaymentMethod('CREDIT')} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-1.5 transition-all ${checkoutPaymentMethod === 'CREDIT' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400'}`}><CreditCard size={20}/><span className="text-[9px] font-black uppercase">Crédito</span></button>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2 block tracking-widest">Precio por Kilo (S/.)</label>
+                              <div className="relative">
+                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300 text-xl">S/.</span>
+                                  <input 
+                                    type="number" 
+                                    step="0.01" 
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-12 pr-4 py-5 font-black text-2xl text-slate-900 outline-none focus:border-emerald-500 transition-all shadow-inner" 
+                                    value={checkoutPrice} 
+                                    onChange={e => setCheckoutPrice(e.target.value)} 
+                                    placeholder="0.00"
+                                    autoFocus 
+                                  />
+                              </div>
+                          </div>
+                          <div className="flex flex-col justify-end">
+                                <label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2 block tracking-widest">Método de Pago</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={() => setCheckoutPaymentMethod('CASH')} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all shadow-sm ${checkoutPaymentMethod === 'CASH' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-white'}`}>
+                                        <Banknote size={24}/>
+                                        <span className="text-[10px] font-black uppercase">Contado</span>
+                                    </button>
+                                    <button onClick={() => setCheckoutPaymentMethod('CREDIT')} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all shadow-sm ${checkoutPaymentMethod === 'CREDIT' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-white'}`}>
+                                        <CreditCard size={24}/>
+                                        <span className="text-[10px] font-black uppercase">Crédito</span>
+                                    </button>
+                                </div>
+                          </div>
                       </div>
                   </div>
-                  <div className="p-6 pt-0 flex flex-col gap-2">
-                      <button onClick={handleConfirmCheckout} className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all"><Printer size={18}/> FINALIZAR E IMPRIMIR</button>
-                      <button onClick={() => setShowCheckoutModal(false)} className="w-full text-slate-400 font-bold py-2 text-[10px] uppercase">Cerrar</button>
+
+                  <div className="p-6 bg-slate-50 border-t flex flex-col gap-3">
+                      <button onClick={handleConfirmCheckout} className="w-full bg-blue-950 text-white py-5 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95">
+                        <Printer size={20}/> FINALIZAR VENTA E IMPRIMIR
+                      </button>
+                      <button onClick={() => setShowCheckoutModal(false)} className="w-full text-slate-400 font-bold py-2 text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar Operación</button>
                   </div>
               </div>
           </div>

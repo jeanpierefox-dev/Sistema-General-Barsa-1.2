@@ -44,7 +44,6 @@ const sanitizeForFirebase = (data: any) => {
 const initFirebase = async (config: AppConfig) => {
     if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return;
     try {
-        // Si ya hay una app, la eliminamos para refrescar la configuración
         const apps = getApps();
         if (apps.length > 0) {
             for (const app of apps) {
@@ -63,7 +62,6 @@ const initFirebase = async (config: AppConfig) => {
 const setupListeners = () => {
     if (!firebaseDb) return;
     
-    // Listener de Usuarios
     onValue(ref(firebaseDb, 'data/users'), (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -89,7 +87,6 @@ const setupListeners = () => {
     });
 };
 
-// Función crítica para dispositivos nuevos: Descarga usuarios AHORA
 export const forceSyncUsers = async () => {
     const config = getConfig();
     if (!config.cloudEnabled || !config.firebaseConfig.apiKey) return false;
@@ -111,24 +108,20 @@ export const forceSyncUsers = async () => {
     return false;
 };
 
-// FUNCIÓN PARA SUBIR DATOS LOCALES A LA NUBE
 export const uploadLocalDataToCloud = async () => {
     const config = getConfig();
     if (!config.cloudEnabled || !config.firebaseConfig.apiKey) {
         throw new Error("La nube no está configurada o activada.");
     }
     
-    // Asegurar conexión fresca
     await initFirebase(config);
-    if (!firebaseDb) throw new Error("No se pudo conectar con la base de datos. Verifique su internet.");
+    if (!firebaseDb) throw new Error("No se pudo conectar con la base de datos.");
 
     try {
-        // Limpiamos los datos de cualquier valor 'undefined' antes de subir
         const users = sanitizeForFirebase(getUsers());
         const batches = sanitizeForFirebase(getBatches());
         const orders = sanitizeForFirebase(getOrders());
 
-        // Subida en bloque
         await set(ref(firebaseDb, 'data/users'), users);
         await set(ref(firebaseDb, 'data/batches'), batches);
         await set(ref(firebaseDb, 'data/orders'), orders);
@@ -137,8 +130,28 @@ export const uploadLocalDataToCloud = async () => {
     } catch (e: any) {
         console.error("Manual Upload Error:", e);
         if (e.message?.includes('permission_denied')) {
-            throw new Error("Error de permisos: Verifique que las reglas de su base de datos permitan lectura/escritura pública.");
+            throw new Error("Error de permisos: Verifique que las reglas de su base de datos permitan lectura/escritura.");
         }
+        throw e;
+    }
+};
+
+// FUNCIÓN PARA FORMATEAR LA NUBE
+export const formatCloudData = async () => {
+    const config = getConfig();
+    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) {
+        throw new Error("La nube no está configurada.");
+    }
+    
+    if (!firebaseDb) await initFirebase(config);
+    if (!firebaseDb) throw new Error("No hay conexión con la base de datos.");
+
+    try {
+        // Al setear el nodo 'data' en null, Firebase borra todo su contenido
+        await set(ref(firebaseDb, 'data'), null);
+        return true;
+    } catch (e: any) {
+        console.error("Cloud Format Error:", e);
         throw e;
     }
 };
@@ -147,7 +160,6 @@ const pushToCloud = async (path: string, data: any) => {
     const config = getConfig();
     if (!config.cloudEnabled || !firebaseDb) return;
     try {
-        // Sanitizamos el dato individual antes de subirlo automáticamente
         await set(ref(firebaseDb, `data/${path}`), sanitizeForFirebase(data));
     } catch (e) {
         console.error("Cloud Push Error:", e);

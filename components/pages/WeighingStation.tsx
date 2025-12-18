@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { WeighingType, ClientOrder, WeighingRecord, UserRole, Batch } from '../../types';
 import { getOrders, saveOrder, getConfig, deleteOrder, getBatches, getUsers } from '../../services/storage';
-import { ArrowLeft, Save, Printer, Eye, Package, PackageOpen, AlertOctagon, User, Lock, FileText, Settings, Edit, DollarSign, CreditCard, Banknote, CheckCircle, X, Trash2, Plus, ListChecks, Bluetooth, BarChart3, Clock, Bird, FileCheck } from 'lucide-react';
+import { bluetooth } from '../../services/bluetooth';
+// Fix: Added missing 'Edit' icon to the lucide-react import list.
+import { ArrowLeft, Save, Printer, Eye, Package, PackageOpen, AlertOctagon, User, FileCheck, DollarSign, CreditCard, Banknote, CheckCircle, X, Trash2, Plus, ListChecks, Bluetooth, Loader2, Edit } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AuthContext } from '../../App';
@@ -33,12 +35,15 @@ const WeighingStation: React.FC = () => {
   
   const weightInputRef = useRef<HTMLInputElement>(null);
 
-  const isOperator = user?.role === UserRole.OPERATOR;
-  const types = [
-      { t: 'FULL', l: 'JABAS LLENAS', c: [23, 37, 84], bg: 'bg-blue-900', text: 'text-blue-100' },
-      { t: 'EMPTY', l: 'JABAS VACÍAS (TARA)', c: [194, 65, 12], bg: 'bg-orange-700', text: 'text-orange-100' },
-      { t: 'MORTALITY', l: 'MERMA / MUERTOS', c: [185, 28, 28], bg: 'bg-red-700', text: 'text-red-100', hidden: isOperator }
-  ].filter(type => !type.hidden);
+  // Escucha de Balanza en Tiempo Real
+  useEffect(() => {
+    if (config.scaleConnected) {
+      const cleanup = bluetooth.onWeightUpdate((w) => {
+        setWeightInput(w.toFixed(2));
+      });
+      return cleanup;
+    }
+  }, [config.scaleConnected]);
 
   useEffect(() => {
     loadOrders();
@@ -46,15 +51,7 @@ const WeighingStation: React.FC = () => {
         const batch = getBatches().find(b => b.id === batchId);
         if (batch) setCurrentBatch(batch);
     }
-
-    const handleUpdate = () => {
-        loadOrders();
-        if (activeOrder) {
-            const found = getOrders().find(o => o.id === activeOrder.id);
-            if (found) setActiveOrder(found);
-            else setActiveOrder(null);
-        }
-    };
+    const handleUpdate = () => loadOrders();
     window.addEventListener('avi_data_orders', handleUpdate);
     setDefaultQuantity();
     return () => window.removeEventListener('avi_data_orders', handleUpdate);
@@ -77,22 +74,8 @@ const WeighingStation: React.FC = () => {
 
   const loadOrders = () => {
     let allOrders = getOrders();
-    let allUsers = getUsers();
-
-    if (mode === WeighingType.BATCH && batchId) {
-      allOrders = allOrders.filter(o => o.batchId === batchId);
-    } else {
-      allOrders = allOrders.filter(o => !o.batchId && o.weighingMode === mode);
-    }
-
-    if (user?.role === UserRole.ADMIN) {
-    } else if (user?.role === UserRole.GENERAL) {
-        const subordinateIds = allUsers.filter(u => u.parentId === user.id).map(u => u.id);
-        allOrders = allOrders.filter(o => o.createdBy === user.id || subordinateIds.includes(o.createdBy || ''));
-    } else {
-        allOrders = allOrders.filter(o => o.createdBy === user?.id);
-    }
-
+    if (mode === WeighingType.BATCH && batchId) allOrders = allOrders.filter(o => o.batchId === batchId);
+    else allOrders = allOrders.filter(o => !o.batchId && o.weighingMode === mode);
     allOrders.sort((a, b) => (a.status === 'OPEN' ? -1 : 1));
     setOrders(allOrders);
   };
@@ -101,53 +84,25 @@ const WeighingStation: React.FC = () => {
     const full = order.records.filter(r => r.type === 'FULL');
     const empty = order.records.filter(r => r.type === 'EMPTY');
     const mort = order.records.filter(r => r.type === 'MORTALITY');
-    
     const totalFullWeight = full.reduce((a, b) => a + b.weight, 0);
     const totalEmptyWeight = empty.reduce((a, b) => a + b.weight, 0);
     const totalMortWeight = mort.reduce((a, b) => a + b.weight, 0);
-    
     const fullUnitsCount = full.reduce((a, b) => a + b.quantity, 0);
     const emptyUnitsCount = empty.reduce((a, b) => a + b.quantity, 0);
     const mortCount = mort.reduce((a, b) => a + b.quantity, 0);
-    
     const netWeight = totalFullWeight - totalEmptyWeight - totalMortWeight;
     const totalBirdsInitial = fullUnitsCount * 9;
     const avgWeight = totalBirdsInitial > 0 ? ((totalFullWeight - totalEmptyWeight) / totalBirdsInitial) : 0;
     const totalBirdsFinal = Math.max(0, totalBirdsInitial - mortCount);
-    
-    return { 
-        totalFullWeight, totalEmptyWeight, totalMortWeight, 
-        fullUnitsCount, emptyUnitsCount, mortCount, 
-        netWeight, avgWeight, totalBirdsInitial, totalBirdsFinal
-    };
+    return { totalFullWeight, totalEmptyWeight, totalMortWeight, fullUnitsCount, emptyUnitsCount, mortCount, netWeight, avgWeight, totalBirdsInitial, totalBirdsFinal };
   };
 
   const addWeight = () => {
     if (!activeOrder || !weightInput || !qtyInput) return;
     const requestedQty = parseInt(qtyInput);
     const totals = getTotals(activeOrder);
-
-    if (activeTab === 'FULL' && activeOrder.targetCrates > 0) {
-        if (totals.fullUnitsCount + requestedQty > activeOrder.targetCrates) {
-            alert(`Límite de Jabas Llenas alcanzado (${activeOrder.targetCrates}).`);
-            return;
-        }
-    }
-
-    if (activeTab === 'EMPTY') {
-        if (totals.emptyUnitsCount + requestedQty > totals.fullUnitsCount) {
-            alert(`Error: Cantidad de vacías (${totals.emptyUnitsCount + requestedQty}) excede a las llenas (${totals.fullUnitsCount}).`);
-            return;
-        }
-    }
-
-    const record: WeighingRecord = {
-      id: Date.now().toString(),
-      timestamp: Date.now(),
-      weight: parseFloat(weightInput),
-      quantity: requestedQty,
-      type: activeTab
-    };
+    if (activeTab === 'FULL' && activeOrder.targetCrates > 0 && (totals.fullUnitsCount + requestedQty > activeOrder.targetCrates)) return;
+    const record: WeighingRecord = { id: Date.now().toString(), timestamp: Date.now(), weight: parseFloat(weightInput), quantity: requestedQty, type: activeTab };
     const updatedOrder = { ...activeOrder, records: [record, ...activeOrder.records] };
     saveOrder(updatedOrder);
     setActiveOrder(updatedOrder);
@@ -155,315 +110,102 @@ const WeighingStation: React.FC = () => {
     weightInputRef.current?.focus();
   };
 
-  const deleteRecord = (id: string) => {
-    if(!activeOrder || !confirm('¿Eliminar esta pesada?')) return;
-    const updatedOrder = { ...activeOrder, records: activeOrder.records.filter(r => r.id !== id) };
-    saveOrder(updatedOrder);
-    setActiveOrder(updatedOrder);
-  };
-
-  const handleConfirmCheckout = () => {
-      if (!activeOrder || !checkoutPrice) {
-          alert("Ingrese el precio por kilo.");
-          return;
-      }
+  const handleConfirmCheckout = async () => {
+      if (!activeOrder || !checkoutPrice) return;
       const price = parseFloat(checkoutPrice);
-      const updatedOrder: ClientOrder = {
-          ...activeOrder,
-          pricePerKg: price,
-          paymentMethod: checkoutPaymentMethod,
-          status: 'CLOSED',
-          paymentStatus: checkoutPaymentMethod === 'CASH' ? 'PAID' : 'PENDING'
-      };
+      const updatedOrder: ClientOrder = { ...activeOrder, pricePerKg: price, paymentMethod: checkoutPaymentMethod, status: 'CLOSED', paymentStatus: checkoutPaymentMethod === 'CASH' ? 'PAID' : 'PENDING' };
       if (checkoutPaymentMethod === 'CASH') {
           const { netWeight } = getTotals(activeOrder);
-          updatedOrder.payments.push({ id: Date.now().toString(), amount: netWeight * price, timestamp: Date.now(), note: 'Cierre de cuenta' });
+          updatedOrder.payments.push({ id: Date.now().toString(), amount: netWeight * price, timestamp: Date.now(), note: 'Cierre' });
       }
       saveOrder(updatedOrder);
       setActiveOrder(updatedOrder);
-      generateCheckoutTicket(updatedOrder);
+      await generateTicket(updatedOrder);
       setShowCheckoutModal(false);
   };
 
-  const generateDetailedCorporateReport = (order: ClientOrder) => {
-      const totals = getTotals(order);
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-      const navy: [number, number, number] = [23, 37, 84];
-      const gray: [number, number, number] = [100, 100, 100];
-
-      // Cabecera Centrada
-      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 10, 24, 24); } catch {} }
-      doc.setFont("helvetica", "bold").setFontSize(18).setTextColor(navy[0], navy[1], navy[2]);
-      doc.text(config.companyName.toUpperCase(), 105, 42, { align: 'center' });
-      doc.setFontSize(9).setTextColor(gray[0], gray[1], gray[2]).setFont("helvetica", "normal");
-      doc.text("SISTEMA DE CONTROL AVÍCOLA PROFESIONAL", 105, 47, { align: 'center' });
-      doc.text(`Campaña: ${currentBatch?.name || 'Venta Directa'} | ID: #${order.id.slice(-6)}`, 105, 52, { align: 'center' });
-
-      doc.setDrawColor(220).line(15, 58, 195, 58);
-
-      // Info Cliente
-      doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(0);
-      doc.text("INFORMACIÓN DE DESPACHO", 15, 66);
-      doc.setFont("helvetica", "normal").setFontSize(8.5);
-      doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 15, 72);
-      doc.text(`FECHA EMISIÓN: ${new Date().toLocaleString()}`, 15, 77);
-      doc.text(`CONDICIÓN: ${order.paymentMethod || 'PENDIENTE'}`, 130, 72);
-      doc.text(`PRECIO x KG: S/. ${order.pricePerKg.toFixed(2)}`, 130, 77);
-
-      // 1. CUADRO RESUMEN CONSOLIDADO (MÁXIMA PRIORIDAD)
-      const summaryY = 85;
-      autoTable(doc, {
-          startY: summaryY,
-          theme: 'grid',
-          headStyles: { fillColor: navy, fontSize: 8.5, halign: 'center' },
-          styles: { fontSize: 8.5, halign: 'center', cellPadding: 2 },
-          head: [['CATEGORÍA', 'CANTIDAD (UNDS)', 'PESO TOTAL (KG)']],
-          body: [
-              ['PESO BRUTO (LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
-              ['TARA (VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
-              ['MERMA / MUERTOS', totals.mortCount, totals.totalMortWeight.toFixed(2)],
-              [{ content: 'PESO NETO TOTAL', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
-              [{ content: 'POLLOS NETOS ESTIMADOS', styles: { fontStyle: 'bold' } }, { content: totals.totalBirdsFinal.toString(), styles: { fontStyle: 'bold' } }, { content: 'Prom: ' + totals.avgWeight.toFixed(3) + ' kg', styles: { fontSize: 7 } }]
-          ],
-          margin: { left: 15, right: 15 }
-      });
-
-      // 2. MATRIZ DE AUDITORÍA UNIFICADA (DETALLE COMPACTO)
-      const detailY = (doc as any).lastAutoTable.finalY + 10;
-      doc.setFont("helvetica", "bold").setFontSize(10).text("DESGLOSE DE AUDITORÍA (POR PESADA)", 15, detailY);
-      
-      const full = order.records.filter(r => r.type === 'FULL');
-      const empty = order.records.filter(r => r.type === 'EMPTY');
-      const mort = order.records.filter(r => r.type === 'MORTALITY');
-      const maxRows = Math.max(full.length, empty.length, mort.length);
-
-      const auditRows = [];
-      for (let i = 0; i < maxRows; i++) {
-          auditRows.push([
-              full[i] ? `${full.length - i}` : '-',
-              full[i] ? full[i].weight.toFixed(2) : '-',
-              empty[i] ? `${empty.length - i}` : '-',
-              empty[i] ? empty[i].weight.toFixed(2) : '-',
-              mort[i] ? `${mort.length - i}` : '-',
-              mort[i] ? mort[i].weight.toFixed(2) : '-'
-          ]);
-      }
-
-      autoTable(doc, {
-          startY: detailY + 4,
-          theme: 'grid',
-          headStyles: { fillColor: [60, 60, 60], fontSize: 7, halign: 'center', cellPadding: 1 },
-          styles: { fontSize: 7, halign: 'center', cellPadding: 1 },
-          head: [['# LLENA', 'PESO KG', '# TARA', 'PESO KG', '# MERMA', 'PESO KG']],
-          body: auditRows,
-          margin: { left: 15, right: 15 },
-          columnStyles: {
-              0: { fillColor: [240, 245, 255] }, 1: { fontStyle: 'bold' },
-              2: { fillColor: [255, 245, 235] }, 3: { fontStyle: 'bold' },
-              4: { fillColor: [255, 235, 235] }, 5: { fontStyle: 'bold' }
+  const generateTicket = async (order: ClientOrder) => {
+      if (config.printerConnected) {
+          const t = getTotals(order);
+          const header = `${config.companyName}\nID: #${order.id.slice(-6)}\nCLIENTE: ${order.clientName}\nFECHA: ${new Date().toLocaleDateString()}\n----------------\n`;
+          const body = `BRUTO: ${t.totalFullWeight.toFixed(2)} KG\nTARA: ${t.totalEmptyWeight.toFixed(2)} KG\nNETO: ${t.netWeight.toFixed(2)} KG\n----------------\nAVES: ${t.totalBirdsFinal}\nTOTAL: S/. ${(t.netWeight * order.pricePerKg).toFixed(2)}`;
+          try {
+              await bluetooth.printEscPos(header + body);
+          } catch (e) {
+              alert("Error al imprimir vía Bluetooth. Se descargará PDF.");
+              generatePDFTicket(order);
           }
-      });
-
-      // Firmas
-      const finalY = Math.min(270, (doc as any).lastAutoTable.finalY + 25);
-      doc.setDrawColor(200).line(30, finalY, 80, finalY).line(130, finalY, 180, finalY);
-      doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(gray[0], gray[1], gray[2]);
-      doc.text("FIRMA DESPACHO", 55, finalY + 5, { align: 'center' });
-      doc.text("FIRMA CLIENTE", 155, finalY + 5, { align: 'center' });
-
-      doc.save(`Reporte_${order.clientName.replace(/\s+/g, '_')}.pdf`);
+      } else {
+          generatePDFTicket(order);
+      }
   };
 
-  const generateCheckoutTicket = (order: ClientOrder) => {
+  const generatePDFTicket = (order: ClientOrder) => {
     const totals = getTotals(order);
     const doc = new jsPDF({ unit: 'mm', format: [80, 140] });
-    let y = 8;
-    
-    if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 32, y, 16, 16); y += 18; } catch {} }
-    doc.setFontSize(9).setFont("helvetica", "bold").text(config.companyName.toUpperCase(), 40, y, { align: 'center' });
-    y += 4;
-    doc.setFontSize(7).setFont("helvetica", "normal").text("COMPROBANTE DE DESPACHO", 40, y, { align: 'center' });
-    y += 6;
-
-    doc.setFontSize(7).setFont("helvetica", "bold");
-    doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 5, y); y += 3.5;
-    doc.setFont("helvetica", "normal");
-    doc.text(`ID: #${order.id.slice(-6)} | ${new Date().toLocaleDateString()}`, 5, y); y += 4;
-    
-    autoTable(doc, {
-        startY: y,
-        theme: 'grid',
-        headStyles: { fillColor: [40, 40, 40], fontSize: 6.5, halign: 'center', cellPadding: 1 },
-        styles: { fontSize: 6.5, halign: 'center', cellPadding: 1 },
-        head: [['ITEM', 'CANT', 'PESO KG']],
-        body: [
-            ['BRUTO', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
-            ['TARA', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
-            ['MERMA', totals.mortCount, totals.totalMortWeight.toFixed(2)],
-            [{ content: 'TOTAL NETO', styles: { fontStyle: 'bold' } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold' } }]
-        ],
-        margin: { left: 4, right: 4 }
-    });
-
-    y = (doc as any).lastAutoTable.finalY + 6;
-    doc.setFontSize(7.5).setFont("helvetica", "bold");
-    doc.text(`AVES NETAS: ${totals.totalBirdsFinal}`, 5, y); y += 4;
-    doc.text(`PRECIO KG: S/. ${order.pricePerKg.toFixed(2)}`, 5, y); y += 5;
-    doc.setFontSize(9).text(`TOTAL: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
-    
+    let y = 10;
+    doc.setFontSize(10).setFont("helvetica", "bold").text(config.companyName.toUpperCase(), 40, y, { align: 'center' }); y += 10;
+    doc.setFontSize(8).text(`CLIENTE: ${order.clientName.toUpperCase()}`, 5, y); y += 5;
+    doc.text(`NETO: ${totals.netWeight.toFixed(2)} KG`, 5, y); y += 5;
+    doc.text(`TOTAL: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
     doc.save(`Ticket_${order.clientName}.pdf`);
   };
 
   const handleSaveClient = () => {
     if (!newClientName) return;
-    if (editingOrder) {
-        saveOrder({ ...editingOrder, clientName: newClientName, targetCrates: targetCrates });
-    } else {
-        const newOrder: ClientOrder = {
-            id: Date.now().toString(),
-            clientName: newClientName,
-            targetCrates: targetCrates, 
-            pricePerKg: 0,
-            status: 'OPEN',
-            records: [],
-            batchId: batchId,
-            weighingMode: mode as WeighingType,
-            paymentStatus: 'PENDING',
-            payments: [],
-            createdBy: user?.id
-        };
-        saveOrder(newOrder);
-    }
-    closeClientModal();
+    const o = editingOrder ? { ...editingOrder, clientName: newClientName, targetCrates } : { id: Date.now().toString(), clientName: newClientName, targetCrates, pricePerKg: 0, status: 'OPEN', records: [], batchId, weighingMode: mode as any, paymentStatus: 'PENDING', payments: [], createdBy: user?.id };
+    saveOrder(o as any);
+    setShowClientModal(false);
+    setEditingOrder(null);
+    setNewClientName('');
+    setTargetCrates(0);
   };
 
-  const closeClientModal = () => {
-      setShowClientModal(false);
-      setEditingOrder(null);
-      setNewClientName('');
-      setTargetCrates(0);
-  };
-
-  const handleDeleteClient = (e: React.MouseEvent, id: string) => {
-      e.stopPropagation();
-      if (confirm('¿Eliminar este cliente y todas sus pesadas?')) {
-          deleteOrder(id);
-      }
-  };
-
-  const totals = getTotals(activeOrder || { records: [], weighingMode: mode as any } as any);
+  const totals = getTotals(activeOrder || { records: [] } as any);
   const isLocked = activeOrder?.status === 'CLOSED';
 
   if (!activeOrder) {
     return (
       <div className="p-4 max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8 pb-4 border-b-2 border-slate-100">
+        <div className="flex justify-between items-center mb-8 border-b-2 pb-4">
             <div>
-                <h2 className="text-2xl font-black text-blue-950 uppercase tracking-tight">Registro de Clientes</h2>
-                <p className="text-slate-500 text-sm font-medium mt-1 uppercase">
-                  {mode === WeighingType.BATCH ? `Campaña: ${currentBatch?.name || 'Cargando...'}` : `Modo Directo: ${mode}`}
-                </p>
+                <h2 className="text-2xl font-black text-blue-950 uppercase">Despacho de Mercadería</h2>
+                <p className="text-slate-500 text-xs font-bold uppercase">{mode === WeighingType.BATCH ? `Lote: ${currentBatch?.name}` : `Modo: ${mode}`}</p>
             </div>
-            <div className="flex gap-4">
-                <button onClick={() => navigate('/')} className="bg-white border-2 border-slate-100 text-slate-700 px-6 py-3 rounded-xl font-black text-[10px] uppercase shadow-sm flex items-center hover:bg-slate-50 transition-all"><ArrowLeft size={16} className="mr-2"/> Regresar</button>
-            </div>
+            <button onClick={() => navigate('/')} className="bg-white border-2 p-3 rounded-xl font-black text-[10px] uppercase flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"><ArrowLeft size={16}/> Volver</button>
         </div>
-        
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <button 
-            onClick={() => { setEditingOrder(null); setShowClientModal(true); }} 
-            className="flex flex-col items-center justify-center min-h-[320px] bg-white border-4 border-dashed border-slate-200 rounded-[2.5rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
-          >
-            <div className="bg-blue-50 p-4 rounded-full shadow-inner mb-4 group-hover:scale-110 transition-transform">
-                <Plus size={36} className="text-blue-600" />
-            </div>
-            <span className="font-black text-slate-500 uppercase text-[9px] tracking-widest text-center px-4 leading-relaxed">Añadir Nuevo Cliente<br/>al Proceso de Venta</span>
+          <button onClick={() => { setEditingOrder(null); setShowClientModal(true); }} className="flex flex-col items-center justify-center min-h-[300px] bg-white border-4 border-dashed border-slate-200 rounded-[2.5rem] hover:border-blue-600 transition-all group">
+            <Plus size={40} className="text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
+            <span className="font-black text-slate-400 uppercase text-[10px] tracking-widest">NUEVO CLIENTE</span>
           </button>
-          
           {orders.map(order => {
-              const oTotals = getTotals(order);
-              const oClosed = order.status === 'CLOSED';
-              const percent = order.targetCrates > 0 ? Math.min((oTotals.fullUnitsCount / order.targetCrates) * 100, 100) : 0;
-              
+              const ot = getTotals(order);
               return (
-                  <div key={order.id} className={`bg-white rounded-[2rem] shadow-lg border-2 transition-all duration-300 overflow-hidden flex flex-col min-h-[320px] relative cursor-pointer ${oClosed ? 'opacity-80' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
-                      <div className="bg-slate-900 p-5 flex justify-between items-start">
-                         <div className="flex items-center space-x-3 overflow-hidden">
-                             <div className={`p-2.5 rounded-xl text-white shadow-lg shrink-0 ${oClosed ? 'bg-slate-700' : 'bg-blue-600'}`}>
-                                 {oClosed ? <Lock size={18} /> : <User size={18} />}
-                             </div>
-                             <div className="overflow-hidden">
-                                <h3 className="font-black text-white text-base leading-tight uppercase truncate max-w-[130px]">{order.clientName}</h3>
-                                <p className="text-slate-400 text-[8px] font-black uppercase mt-0.5 tracking-widest">#{order.id.slice(-6)}</p>
-                             </div>
-                         </div>
-                         <div className="flex gap-1.5 shrink-0">
-                             <button onClick={(e) => { e.stopPropagation(); setEditingOrder(order); setNewClientName(order.clientName); setTargetCrates(order.targetCrates); setShowClientModal(true); }} className="bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-white transition-colors"><Edit size={14}/></button>
-                             <button onClick={(e) => handleDeleteClient(e, order.id)} className="bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
-                         </div>
+                  <div key={order.id} className="bg-white rounded-[2rem] shadow-lg border-2 border-slate-100 hover:border-blue-500 transition-all p-6 cursor-pointer" onClick={() => setActiveOrder(order)}>
+                      <div className="flex justify-between items-start mb-4">
+                          <div className="bg-blue-600 p-2 rounded-xl text-white"><User size={20}/></div>
+                          <div className="flex gap-2">
+                              <button onClick={(e) => { e.stopPropagation(); setEditingOrder(order); setNewClientName(order.clientName); setTargetCrates(order.targetCrates); setShowClientModal(true); }} className="text-slate-400 hover:text-blue-500"><Edit size={16}/></button>
+                              <button onClick={(e) => { e.stopPropagation(); if(confirm('¿Borrar?')) deleteOrder(order.id); }} className="text-slate-400 hover:text-red-500"><Trash2 size={16}/></button>
+                          </div>
                       </div>
-
-                      <div className="p-6 flex-1 flex flex-col justify-between">
-                          <div>
-                              <div className="mb-4">
-                                  <div className="flex justify-between text-[9px] font-black uppercase tracking-widest mb-2">
-                                      <span className="text-slate-500">Jabas</span>
-                                      <span className="text-blue-600 font-black">{oTotals.fullUnitsCount} / {order.targetCrates || '∞'}</span>
-                                  </div>
-                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-50 shadow-inner">
-                                      <div className={`h-full rounded-full bg-blue-500 transition-all duration-700`} style={{ width: `${percent}%` }}></div>
-                                  </div>
-                              </div>
-
-                              <div className="grid grid-cols-3 gap-2 text-center">
-                                  <div className="bg-blue-50 p-2 rounded-xl border border-blue-100">
-                                      <p className="text-[7px] font-black text-blue-500 uppercase mb-0.5">LLENAS</p>
-                                      <p className="font-black text-slate-800 text-base leading-none">{oTotals.fullUnitsCount}</p>
-                                  </div>
-                                  <div className="bg-orange-50 p-2 rounded-xl border border-orange-100">
-                                      <p className="text-[7px] font-black text-orange-500 uppercase mb-0.5">TARA</p>
-                                      <p className="font-black text-slate-800 text-base leading-none">{oTotals.emptyUnitsCount}</p>
-                                  </div>
-                                  <div className="bg-red-50 p-2 rounded-xl border border-red-100">
-                                      <p className="text-[7px] font-black text-red-500 uppercase mb-0.5">MERMA</p>
-                                      <p className="font-black text-slate-800 text-base leading-none">{oTotals.mortCount}</p>
-                                  </div>
-                              </div>
-                          </div>
-
-                          <div className="mt-6 flex items-center justify-between border-t pt-3">
-                             <div>
-                                 <p className="text-[8px] font-black text-slate-400 uppercase">PESO NETO (KG)</p>
-                                 <p className="text-base font-black text-slate-900">{oTotals.netWeight.toFixed(1)}</p>
-                             </div>
-                             <div className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${oClosed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
-                                 {oClosed ? 'Liquidado' : 'Pesando'}
-                             </div>
-                          </div>
+                      <h3 className="font-black text-slate-800 text-lg uppercase truncate mb-1">{order.clientName}</h3>
+                      <div className="grid grid-cols-2 gap-2 mt-4">
+                          <div className="bg-slate-50 p-2 rounded-xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase">PESO NETO</p><p className="font-black text-slate-900">{ot.netWeight.toFixed(1)} KG</p></div>
+                          <div className="bg-slate-50 p-2 rounded-xl text-center"><p className="text-[7px] font-black text-slate-400 uppercase">JABAS</p><p className="font-black text-slate-900">{ot.fullUnitsCount}</p></div>
                       </div>
                   </div>
               );
           })}
         </div>
-
         {showClientModal && (
            <div className="fixed inset-0 bg-blue-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-             <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 w-full max-w-sm">
-                <h3 className="font-black text-2xl mb-8 text-slate-900 tracking-tight uppercase">{editingOrder ? 'Ajustar' : 'Nuevo'} Cliente</h3>
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Nombre del Cliente</label>
-                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Ej. Juan Pérez" autoFocus />
-                    </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Meta de Jabas</label>
-                        <input type="number" className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-900 outline-none focus:border-blue-500 transition-all" value={targetCrates || ''} onChange={e => setTargetCrates(Number(e.target.value))} placeholder="Ej. 100" />
-                    </div>
-                </div>
-                <div className="flex flex-col gap-3 mt-10">
-                    <button onClick={handleSaveClient} className="bg-blue-950 text-white w-full py-4 rounded-xl font-black shadow-lg hover:bg-blue-900 uppercase text-[10px] tracking-widest active:scale-95 transition-all">ACEPTAR</button>
-                    <button onClick={closeClientModal} className="w-full text-slate-400 font-bold py-2 text-[10px] uppercase tracking-widest">Cerrar</button>
-                </div>
+             <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm">
+                <h3 className="font-black text-xl mb-6 uppercase text-slate-900">{editingOrder ? 'Editar' : 'Nuevo'} Cliente</h3>
+                <input className="w-full bg-slate-50 border-2 rounded-xl px-4 py-3 font-bold mb-4 outline-none focus:border-blue-500" value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Nombre del Cliente" />
+                <input type="number" className="w-full bg-slate-50 border-2 rounded-xl px-4 py-3 font-bold mb-6 outline-none focus:border-blue-500" value={targetCrates || ''} onChange={e => setTargetCrates(Number(e.target.value))} placeholder="Meta de Jabas" />
+                <button onClick={handleSaveClient} className="bg-blue-950 text-white w-full py-4 rounded-xl font-black uppercase text-[11px] tracking-widest shadow-lg">ACEPTAR</button>
              </div>
            </div>
         )}
@@ -472,85 +214,67 @@ const WeighingStation: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-3 max-w-7xl mx-auto p-1 md:p-2">
-      <div className="bg-blue-950 p-2 md:p-3 rounded-2xl shadow-xl border border-blue-900 text-white flex flex-col md:flex-row justify-between items-center gap-2">
-          <div className="flex items-center w-full md:w-auto">
-             <button onClick={() => setActiveOrder(null)} className="p-2 bg-blue-900 rounded-lg mr-2 hover:bg-blue-800 transition-colors"><ArrowLeft size={16}/></button>
-             <div className="truncate">
-                 <h1 className="text-xs md:text-sm font-black truncate uppercase leading-none">{activeOrder.clientName}</h1>
-                 <p className="text-[8px] text-blue-300 font-bold uppercase mt-1 tracking-widest">Meta: {activeOrder.targetCrates || '∞'}</p>
+    <div className="h-full flex flex-col space-y-3 max-w-7xl mx-auto p-2">
+      <div className="bg-blue-950 p-3 rounded-2xl shadow-xl text-white flex justify-between items-center gap-4">
+          <div className="flex items-center">
+             <button onClick={() => setActiveOrder(null)} className="p-2 bg-blue-900 rounded-lg mr-3"><ArrowLeft size={16}/></button>
+             <div>
+                 <h1 className="text-sm font-black uppercase truncate">{activeOrder.clientName}</h1>
+                 {config.scaleConnected && <div className="flex items-center gap-1.5 text-[8px] text-emerald-400 font-black uppercase tracking-widest animate-pulse"><Bluetooth size={10}/> Balanza Activa</div>}
              </div>
           </div>
-          <div className="flex-1 grid grid-cols-5 gap-1.5 w-full max-w-3xl">
-              {[ 
-                  {l: 'JABAS', v: totals.fullUnitsCount, c: 'text-blue-300'}, 
-                  {l: 'POLLOS', v: totals.totalBirdsFinal, c: 'text-yellow-400'},
-                  {l: 'P. BRUTO', v: totals.totalFullWeight.toFixed(1), c: 'text-white'}, 
-                  {l: 'NETO KG', v: totals.netWeight.toFixed(1), c: 'text-emerald-400'}, 
-                  {l: 'PROM/AVE', v: totals.avgWeight.toFixed(3), c: 'text-cyan-300'} 
-              ].map((s,i) => (
-                  <div key={i} className="bg-blue-900/40 py-1.5 px-1 rounded-lg text-center border border-blue-800/50">
-                      <p className="text-[7px] font-black text-blue-400 uppercase mb-0.5 tracking-tighter leading-none">{s.l}</p>
-                      <p className={`font-mono text-[10px] md:text-sm font-black leading-none ${s.c}`}>{s.v}</p>
-                  </div>
-              ))}
+          <div className="flex-1 grid grid-cols-4 gap-2">
+              <div className="bg-blue-900/40 p-2 rounded-lg text-center"><p className="text-[7px] text-blue-400 uppercase font-black">NETO KG</p><p className="font-mono text-sm font-black text-emerald-400">{totals.netWeight.toFixed(1)}</p></div>
+              <div className="bg-blue-900/40 p-2 rounded-lg text-center"><p className="text-[7px] text-blue-400 uppercase font-black">JABAS</p><p className="font-mono text-sm font-black">{totals.fullUnitsCount}</p></div>
+              <div className="bg-blue-900/40 p-2 rounded-lg text-center"><p className="text-[7px] text-blue-400 uppercase font-black">AVES</p><p className="font-mono text-sm font-black text-yellow-400">{totals.totalBirdsFinal}</p></div>
+              <div className="bg-blue-900/40 p-2 rounded-lg text-center"><p className="text-[7px] text-blue-400 uppercase font-black">PROM</p><p className="font-mono text-sm font-black text-cyan-300">{totals.avgWeight.toFixed(3)}</p></div>
           </div>
-          <div className="flex gap-1 w-full md:w-auto">
-              <button onClick={() => setShowDetailModal(true)} className="flex-1 md:flex-none bg-blue-800 p-2 rounded-lg hover:bg-blue-700 transition-colors"><Eye size={16}/></button>
-              {!isLocked ? (
-                <button onClick={() => { setCheckoutPrice(''); setShowCheckoutModal(true); }} className="flex-1 md:flex-none bg-emerald-600 px-4 py-2 rounded-lg font-black text-[9px] uppercase shadow-lg hover:bg-emerald-500 transition-all flex items-center justify-center gap-1.5"><CheckCircle size={14}/> COBRAR</button>
-              ) : (
-                <button onClick={() => generateCheckoutTicket(activeOrder)} className="flex-1 md:flex-none bg-blue-600 px-4 py-2 rounded-lg font-black text-[9px] uppercase shadow-lg hover:bg-blue-500 transition-all flex items-center justify-center gap-1.5"><Printer size={14}/> TICKET</button>
-              )}
+          <div className="flex gap-2">
+              <button onClick={() => setShowDetailModal(true)} className="bg-blue-800 p-2 rounded-lg"><Eye size={18}/></button>
+              {!isLocked && <button onClick={() => setShowCheckoutModal(true)} className="bg-emerald-600 px-4 py-2 rounded-lg font-black text-[9px] uppercase flex items-center gap-2"><CheckCircle size={14}/> COBRAR</button>}
           </div>
       </div>
 
       {!isLocked ? (
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
-            <div className="flex flex-col lg:flex-row gap-3 items-center">
-                <div className="flex bg-slate-100 p-1 rounded-xl gap-1 w-full lg:w-auto">
-                    {types.map(b => (
-                        <button key={b.t} onClick={() => setActiveTab(b.t as any)} className={`px-4 py-2 rounded-lg flex-1 flex items-center justify-center gap-1.5 text-[9px] font-black transition-all ${activeTab === b.t ? `${b.bg} text-white shadow-md` : 'text-slate-400 hover:bg-white'}`}>
-                            {b.t === 'FULL' ? <Package size={14}/> : b.t === 'EMPTY' ? <PackageOpen size={14}/> : <AlertOctagon size={14}/>}
-                            {b.l.split(' ')[0]}
-                        </button>
-                    ))}
+        <div className="bg-white p-4 rounded-2xl shadow-sm border flex flex-col md:flex-row gap-4">
+            <div className="flex bg-slate-100 p-1 rounded-xl gap-1 flex-1 md:flex-none">
+                <button onClick={() => setActiveTab('FULL')} className={`px-4 py-3 rounded-lg flex-1 text-[10px] font-black uppercase transition-all ${activeTab === 'FULL' ? 'bg-blue-900 text-white' : 'text-slate-400'}`}>Llenas</button>
+                <button onClick={() => setActiveTab('EMPTY')} className={`px-4 py-3 rounded-lg flex-1 text-[10px] font-black uppercase transition-all ${activeTab === 'EMPTY' ? 'bg-orange-600 text-white' : 'text-slate-400'}`}>Vacías</button>
+                <button onClick={() => setActiveTab('MORTALITY')} className={`px-4 py-3 rounded-lg flex-1 text-[10px] font-black uppercase transition-all ${activeTab === 'MORTALITY' ? 'bg-red-600 text-white' : 'text-slate-400'}`}>Merma</button>
+            </div>
+            <div className="flex-1 flex gap-2">
+                <div className="w-20 bg-slate-50 border rounded-xl p-2 text-center">
+                    <label className="text-[7px] font-black text-slate-400 uppercase">UNDS</label>
+                    <input type="number" value={qtyInput} onChange={e => setQtyInput(e.target.value)} className="w-full bg-transparent text-lg font-black text-center outline-none" />
                 </div>
-                <div className="flex gap-2 flex-1 w-full">
-                    <div className="w-16 bg-slate-50 rounded-xl border border-slate-200 p-1 flex flex-col justify-center text-center">
-                        <label className="text-[7px] font-black text-slate-400 uppercase mb-0.5">UNDS</label>
-                        <input type="number" value={qtyInput} onChange={e => setQtyInput(e.target.value)} className="w-full bg-transparent text-slate-900 text-base font-black text-center outline-none" />
+                <div className="flex-1 bg-slate-50 border-2 rounded-xl p-2 focus-within:border-blue-500 flex flex-col justify-center">
+                    <label className="text-[7px] font-black text-slate-400 uppercase text-center">PESO (KG)</label>
+                    <div className="relative">
+                      <input ref={weightInputRef} type="number" step="0.01" value={weightInput} onChange={e => setWeightInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWeight()} className="w-full bg-transparent text-3xl font-black text-center outline-none" placeholder="0.00" />
+                      {config.scaleConnected && <div className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 animate-pulse"><Bluetooth size={16}/></div>}
                     </div>
-                    <div className="flex-1 relative bg-slate-50 rounded-xl border-2 border-slate-100 p-1 focus-within:border-blue-400 transition-all flex flex-col justify-center text-center">
-                        <label className="text-[7px] font-black text-slate-400 uppercase mb-0.5">PESO (KG)</label>
-                        <input ref={weightInputRef} type="number" step="0.01" value={weightInput} onChange={e => setWeightInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWeight()} className="w-full bg-transparent text-slate-900 text-2xl font-black text-center outline-none" placeholder="0.00" />
-                    </div>
-                    <button onClick={addWeight} className="w-12 bg-blue-950 text-white rounded-xl flex items-center justify-center shadow-lg active:scale-95 transition-all"><Save size={20}/></button>
                 </div>
+                <button onClick={addWeight} className="bg-blue-950 text-white px-6 rounded-xl shadow-lg active:scale-95 transition-all"><Save size={24}/></button>
             </div>
         </div>
       ) : (
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-center flex flex-col items-center">
-              <Lock size={24} className="text-slate-300 mb-1"/>
-              <h3 className="text-[10px] font-black text-slate-800 uppercase">REGISTRO LIQUIDADO</h3>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border text-center flex flex-col items-center">
+              <h3 className="text-sm font-black text-slate-800 uppercase">VENTA FINALIZADA</h3>
           </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 min-h-0 overflow-hidden pb-2">
-          {types.map(sec => (
-              <div key={sec.t} className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-                 <div className={`p-1.5 font-black text-[8px] text-center text-white uppercase tracking-widest ${sec.bg}`}>{sec.l}</div>
-                 <div className={`flex-1 overflow-y-auto p-2 space-y-1 bg-slate-50/50`}>
-                    {activeOrder.records.filter(r => r.type === sec.t).map(r => (
-                       <div key={r.id} className="flex justify-between items-center p-2 bg-white rounded-lg border border-slate-100 shadow-sm">
-                           <div className="flex flex-col leading-none">
-                               <span className="font-mono font-black text-slate-800 text-sm">{r.weight.toFixed(2)} KG</span>
-                               <span className="text-[7px] font-black text-slate-400 uppercase mt-0.5">X{r.quantity} UNDS</span>
-                           </div>
-                           {!isLocked && <button onClick={() => deleteRecord(r.id)} className="text-red-300 hover:text-red-600 transition-colors"><X size={14}/></button>}
-                       </div>
-                    ))}
-                 </div>
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden min-h-0">
+          {['FULL', 'EMPTY', 'MORTALITY'].map(type => (
+              <div key={type} className="bg-white rounded-xl border flex flex-col overflow-hidden">
+                  <div className={`p-2 text-center text-white text-[9px] font-black uppercase ${type === 'FULL' ? 'bg-blue-900' : type === 'EMPTY' ? 'bg-orange-600' : 'bg-red-600'}`}>{type}</div>
+                  <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-slate-50">
+                      {activeOrder.records.filter(r => r.type === type).map(r => (
+                          <div key={r.id} className="bg-white p-3 rounded-lg border shadow-sm flex justify-between items-center">
+                              <div><p className="font-mono font-black text-slate-800">{r.weight.toFixed(2)} KG</p><p className="text-[8px] text-slate-400 font-bold uppercase">X{r.quantity} UND</p></div>
+                              {!isLocked && <button onClick={() => { if(confirm('¿Borrar?')) { const u = {...activeOrder, records: activeOrder.records.filter(rec => rec.id !== r.id)}; saveOrder(u); setActiveOrder(u); } }} className="text-red-300 hover:text-red-500"><X size={16}/></button>}
+                          </div>
+                      ))}
+                  </div>
               </div>
           ))}
       </div>
@@ -559,76 +283,20 @@ const WeighingStation: React.FC = () => {
           <div className="fixed inset-0 bg-blue-950/80 flex items-center justify-center p-4 z-[60] backdrop-blur-md">
               <div className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
                   <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
-                      <div className="flex items-center gap-3">
-                          <ListChecks className="text-blue-400" />
-                          <h3 className="font-black text-sm uppercase tracking-widest">Resumen de Pesaje - {activeOrder.clientName}</h3>
-                      </div>
-                      <button onClick={() => setShowDetailModal(false)} className="p-2 hover:bg-slate-800 rounded-xl transition-colors"><X/></button>
+                      <h3 className="font-black text-sm uppercase tracking-widest">Resumen - {activeOrder.clientName}</h3>
+                      <button onClick={() => setShowDetailModal(false)} className="p-2"><X/></button>
                   </div>
                   <div className="p-6 overflow-y-auto space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="bg-blue-50 p-6 rounded-[2rem] border-2 border-blue-200 text-center shadow-inner">
-                              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><Package size={14}/> Solo Llenas</p>
-                              <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalFullWeight.toFixed(2)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG TOTAL • {totals.fullUnitsCount} UND</p>
-                          </div>
-                          <div className="bg-orange-50 p-6 rounded-[2rem] border-2 border-orange-200 text-center shadow-inner">
-                              <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><PackageOpen size={14}/> Solo Vacías</p>
-                              <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalEmptyWeight.toFixed(2)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG TOTAL • {totals.emptyUnitsCount} UND</p>
-                          </div>
-                          <div className="bg-red-50 p-6 rounded-[2rem] border-2 border-red-200 text-center shadow-inner">
-                              <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><AlertOctagon size={14}/> Solo Merma</p>
-                              <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalMortWeight.toFixed(2)}</p>
-                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG TOTAL • {totals.mortCount} UND</p>
-                          </div>
+                      <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-blue-50 p-4 rounded-2xl border text-center"><p className="text-[9px] font-black text-blue-600 uppercase mb-1">BRUTO</p><p className="font-black text-2xl">{totals.totalFullWeight.toFixed(2)}</p></div>
+                          <div className="bg-orange-50 p-4 rounded-2xl border text-center"><p className="text-[9px] font-black text-orange-600 uppercase mb-1">TARA</p><p className="font-black text-2xl">{totals.totalEmptyWeight.toFixed(2)}</p></div>
+                          <div className="bg-red-50 p-4 rounded-2xl border text-center"><p className="text-[9px] font-black text-red-600 uppercase mb-1">MERMA</p><p className="font-black text-2xl">{totals.totalMortWeight.toFixed(2)}</p></div>
                       </div>
-
-                      <div className="bg-slate-900 p-6 rounded-[2rem] text-white flex justify-around items-center">
-                          <div className="text-center">
-                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Resultado Neto</p>
-                              <p className="text-3xl font-black text-emerald-400">{totals.netWeight.toFixed(2)} KG</p>
-                          </div>
-                          <div className="w-px h-10 bg-slate-800"></div>
-                          <div className="text-center">
-                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Aves Despachadas</p>
-                              <p className="text-3xl font-black text-yellow-400">{totals.totalBirdsFinal}</p>
-                          </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        {types.map(t => (
-                            <div key={t.t} className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-[280px]">
-                                <div className={`p-2 text-center text-white font-black text-[9px] uppercase ${t.bg}`}>{t.l}</div>
-                                <div className="p-2 space-y-1 overflow-y-auto bg-slate-50/50 flex-1">
-                                    {activeOrder.records.filter(r => r.type === t.t).map((r, i) => (
-                                        <div key={r.id} className="bg-white p-2 rounded-lg border border-slate-100 flex justify-between items-center shadow-sm">
-                                            <div className="flex flex-col">
-                                                <span className="text-[10px] font-black text-slate-800">{r.weight.toFixed(2)} KG</span>
-                                                <span className="text-[7px] text-slate-400 uppercase font-bold">Pesada #{activeOrder.records.filter(rec => rec.type === t.t).length - i}</span>
-                                            </div>
-                                            <span className="text-[8px] font-black text-slate-400">X{r.quantity}</span>
-                                        </div>
-                                    ))}
-                                    {activeOrder.records.filter(r => r.type === t.t).length === 0 && (
-                                        <div className="h-full flex items-center justify-center text-[8px] text-slate-300 font-black uppercase">Sin registros</div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                      </div>
+                      <div className="bg-slate-900 p-6 rounded-3xl text-center text-white"><p className="text-xs uppercase font-black text-slate-400 mb-2">RESULTADO NETO</p><p className="text-4xl font-black text-emerald-400">{totals.netWeight.toFixed(2)} KG</p></div>
                   </div>
-                  <div className="p-6 bg-slate-50 border-t flex flex-col md:flex-row gap-3">
-                      <button 
-                        onClick={() => generateDetailedCorporateReport(activeOrder)} 
-                        className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-                      >
-                        <FileCheck size={18}/> REPORTE CORPORATIVO (A4)
-                      </button>
-                      <div className="flex gap-3">
-                        <button onClick={() => generateCheckoutTicket(activeOrder)} className="px-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-100 transition-colors flex items-center gap-2 font-black text-[10px] uppercase"><Printer size={20}/> TICKET</button>
-                        <button onClick={() => setShowDetailModal(false)} className="px-6 bg-slate-200 text-slate-600 rounded-2xl font-black uppercase text-[10px]">Cerrar</button>
-                      </div>
+                  <div className="p-6 bg-slate-50 border-t flex gap-3">
+                      <button onClick={() => generatePDFTicket(activeOrder)} className="flex-1 bg-white border-2 p-4 rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-2"><Printer size={18}/> PDF TICKET</button>
+                      <button onClick={() => setShowDetailModal(false)} className="flex-1 bg-slate-200 p-4 rounded-2xl font-black uppercase text-[10px]">Cerrar</button>
                   </div>
               </div>
           </div>
@@ -636,71 +304,20 @@ const WeighingStation: React.FC = () => {
 
       {showCheckoutModal && (
           <div className="fixed inset-0 bg-blue-950/80 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-              <div className="bg-white rounded-[2.5rem] w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl animate-fade-in flex flex-col">
-                  <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
-                      <h3 className="font-black text-base uppercase tracking-widest flex items-center gap-2"><DollarSign className="text-emerald-400"/> Liquidación de Venta</h3>
-                      <button onClick={() => setShowCheckoutModal(false)} className="p-1.5 hover:bg-slate-800 rounded-xl transition-colors"><X size={24}/></button>
-                  </div>
-                  
-                  <div className="p-6 overflow-y-auto space-y-8 scrollbar-hide">
-                      <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-dashed border-slate-200">
-                          <p className="text-[10px] font-black text-slate-400 uppercase mb-4 text-center tracking-widest italic underline underline-offset-4">Resumen de Mercadería</p>
-                          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                             <div className="flex justify-between border-b pb-3">
-                                 <span className="text-[10px] font-black text-slate-400 uppercase">CLIENTE:</span>
-                                 <span className="text-sm font-black text-slate-900 uppercase">{activeOrder?.clientName}</span>
-                             </div>
-                             <div className="space-y-3 text-xs font-bold text-slate-600">
-                                 <div className="flex justify-between"><span>Peso Bruto Acumulado:</span><span className="font-mono">{totals.totalFullWeight.toFixed(2)} KG</span></div>
-                                 <div className="flex justify-between text-orange-600"><span>Menos Tara (Vacías):</span><span className="font-mono">- {totals.totalEmptyWeight.toFixed(2)} KG</span></div>
-                                 <div className="flex justify-between text-red-600"><span>Menos Merma / Muertos:</span><span className="font-mono">- {totals.totalMortWeight.toFixed(2)} KG</span></div>
-                                 <div className="flex justify-between pt-3 border-t font-black text-slate-900 text-sm"><span>Peso Neto Total:</span><span className="font-mono">{totals.netWeight.toFixed(2)} KG</span></div>
-                             </div>
-                             <div className="pt-4 bg-slate-900 p-4 rounded-xl flex justify-between items-center text-white shadow-lg">
-                                 <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Total a Pagar:</span>
-                                 <span className="text-2xl font-black text-emerald-400 font-mono">S/. {(totals.netWeight * (parseFloat(checkoutPrice) || 0)).toFixed(2)}</span>
-                             </div>
-                          </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                              <label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2 block tracking-widest">Precio por Kilo (S/.)</label>
-                              <div className="relative">
-                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300 text-xl">S/.</span>
-                                  <input 
-                                    type="number" 
-                                    step="0.01" 
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-12 pr-4 py-5 font-black text-2xl text-slate-900 outline-none focus:border-emerald-500 transition-all shadow-inner" 
-                                    value={checkoutPrice} 
-                                    onChange={e => setCheckoutPrice(e.target.value)} 
-                                    placeholder="0.00"
-                                    autoFocus 
-                                  />
-                              </div>
-                          </div>
-                          <div className="flex flex-col justify-end">
-                                <label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-2 block tracking-widest">Método de Pago</label>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button onClick={() => setCheckoutPaymentMethod('CASH')} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all shadow-sm ${checkoutPaymentMethod === 'CASH' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-white'}`}>
-                                        <Banknote size={24}/>
-                                        <span className="text-[10px] font-black uppercase">Contado</span>
-                                    </button>
-                                    <button onClick={() => setCheckoutPaymentMethod('CREDIT')} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all shadow-sm ${checkoutPaymentMethod === 'CREDIT' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-white'}`}>
-                                        <CreditCard size={24}/>
-                                        <span className="text-[10px] font-black uppercase">Crédito</span>
-                                    </button>
-                                </div>
-                          </div>
+              <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl p-8">
+                  <div className="flex justify-between items-center mb-8"><h3 className="font-black text-xl uppercase text-slate-900">Liquidación</h3><button onClick={() => setShowCheckoutModal(false)}><X size={24}/></button></div>
+                  <div className="space-y-6 mb-10">
+                      <div className="bg-slate-900 p-6 rounded-2xl text-white flex justify-between items-center"><span className="text-xs font-black uppercase text-blue-400">Total Neto:</span><span className="text-3xl font-black text-emerald-400">{totals.netWeight.toFixed(2)} KG</span></div>
+                      <input type="number" step="0.01" className="w-full bg-slate-50 border-4 border-slate-100 rounded-2xl p-6 font-black text-3xl outline-none focus:border-emerald-500" value={checkoutPrice} onChange={e => setCheckoutPrice(e.target.value)} placeholder="Precio S/. 0.00" autoFocus />
+                      <div className="grid grid-cols-2 gap-4">
+                          <button onClick={() => setCheckoutPaymentMethod('CASH')} className={`p-4 rounded-2xl border-2 font-black text-[10px] uppercase transition-all ${checkoutPaymentMethod === 'CASH' ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-inner' : 'bg-slate-50 text-slate-400'}`}>EFECTIVO</button>
+                          <button onClick={() => setCheckoutPaymentMethod('CREDIT')} className={`p-4 rounded-2xl border-2 font-black text-[10px] uppercase transition-all ${checkoutPaymentMethod === 'CREDIT' ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-inner' : 'bg-slate-50 text-slate-400'}`}>CRÉDITO</button>
                       </div>
                   </div>
-
-                  <div className="p-6 bg-slate-50 border-t flex flex-col gap-3">
-                      <button onClick={handleConfirmCheckout} className="w-full bg-blue-950 text-white py-5 rounded-2xl font-black shadow-xl hover:bg-blue-900 uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95">
-                        <Printer size={20}/> FINALIZAR VENTA E IMPRIMIR
-                      </button>
-                      <button onClick={() => setShowCheckoutModal(false)} className="w-full text-slate-400 font-bold py-2 text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar Operación</button>
-                  </div>
+                  <button onClick={handleConfirmCheckout} className="w-full bg-blue-950 text-white py-5 rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">
+                      {config.printerConnected ? <Bluetooth size={20}/> : <Printer size={20}/>}
+                      {config.printerConnected ? 'IMPRIMIR TICKET BLUETOOTH' : 'FINALIZAR Y DESCARGAR TICKET'}
+                  </button>
               </div>
           </div>
       )}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { WeighingType, ClientOrder, WeighingRecord, UserRole, Batch } from '../../types';
 import { getOrders, saveOrder, getConfig, deleteOrder, getBatches, getUsers } from '../../services/storage';
-import { ArrowLeft, Save, Printer, Eye, Package, PackageOpen, AlertOctagon, User, Lock, FileText, Settings, Edit, DollarSign, CreditCard, Banknote, CheckCircle, X, Trash2, Plus, ListChecks, Bluetooth, BarChart3, Clock, Bird } from 'lucide-react';
+import { ArrowLeft, Save, Printer, Eye, Package, PackageOpen, AlertOctagon, User, Lock, FileText, Settings, Edit, DollarSign, CreditCard, Banknote, CheckCircle, X, Trash2, Plus, ListChecks, Bluetooth, BarChart3, Clock, Bird, FileCheck } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AuthContext } from '../../App';
@@ -185,53 +185,132 @@ const WeighingStation: React.FC = () => {
       setShowCheckoutModal(false);
   };
 
+  const generateDetailedCorporateReport = (order: ClientOrder) => {
+      const totals = getTotals(order);
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const navy: [number, number, number] = [23, 37, 84];
+      const gray: [number, number, number] = [100, 100, 100];
+
+      // Membrete Centrado
+      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 15, 10, 30, 30); } catch {} }
+      doc.setFont("helvetica", "bold").setFontSize(22).setTextColor(navy[0], navy[1], navy[2]);
+      doc.text(config.companyName.toUpperCase(), 105, 48, { align: 'center' });
+      doc.setFontSize(10).setTextColor(gray[0], gray[1], gray[2]).setFont("helvetica", "normal");
+      doc.text("SISTEMA DE CONTROL AVÍCOLA PROFESIONAL", 105, 54, { align: 'center' });
+      doc.text(`Campaña: ${currentBatch?.name || 'Venta Directa'}`, 105, 59, { align: 'center' });
+
+      doc.setDrawColor(200).line(15, 65, 195, 65);
+
+      // Info Cliente
+      doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(0);
+      doc.text("INFORMACIÓN DE DESPACHO", 15, 75);
+      doc.setFont("helvetica", "normal").setFontSize(9);
+      doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 15, 82);
+      doc.text(`REFERENCIA ID: #${order.id}`, 15, 87);
+      doc.text(`FECHA Y HORA: ${new Date().toLocaleString()}`, 15, 92);
+      doc.text(`CONDICIÓN DE VENTA: ${order.paymentMethod === 'CASH' ? 'CONTADO' : (order.paymentMethod === 'CREDIT' ? 'CRÉDITO' : 'POR DEFINIR')}`, 130, 82);
+
+      // 1. CUADRO RESUMEN CONSOLIDADO (PRIORIDAD)
+      const summaryY = 100;
+      doc.setFont("helvetica", "bold").setFontSize(11).text("1. RESUMEN CONSOLIDADO DE PESAJES", 15, summaryY);
+      
+      autoTable(doc, {
+          startY: summaryY + 4,
+          theme: 'grid',
+          headStyles: { fillColor: navy, fontSize: 9, halign: 'center' },
+          styles: { fontSize: 9, halign: 'center', cellPadding: 3 },
+          head: [['CATEGORÍA', 'CANTIDAD (UNDS)', 'PESO TOTAL (KG)']],
+          body: [
+              ['PESO BRUTO (LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
+              ['TARA (VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
+              ['MERMA / MUERTOS', totals.mortCount, totals.totalMortWeight.toFixed(2)],
+              [{ content: 'PESO NETO TOTAL', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }],
+              [{ content: 'POLLOS NETOS ESTIMADOS', styles: { fontStyle: 'bold' } }, { content: totals.totalBirdsFinal.toString(), styles: { fontStyle: 'bold' } }, { content: 'Prom. ' + totals.avgWeight.toFixed(3) + ' kg', styles: { fontSize: 7 } }]
+          ],
+          margin: { left: 15, right: 15 }
+      });
+
+      // 2. DETALLE DE PESAJES POR CUADRO (AGRUPADOS)
+      let currentY = (doc as any).lastAutoTable.finalY + 12;
+      doc.setFont("helvetica", "bold").setFontSize(11).text("2. DETALLE POR CATEGORÍA", 15, currentY);
+      currentY += 4;
+
+      const groupByType = (type: string, label: string, color: [number, number, number]) => {
+          const filtered = order.records.filter(r => r.type === type);
+          if (filtered.length === 0) return;
+
+          autoTable(doc, {
+              startY: currentY,
+              theme: 'grid',
+              headStyles: { fillColor: color, fontSize: 8, halign: 'center' },
+              styles: { fontSize: 7, halign: 'center', cellPadding: 1.5 },
+              head: [[`${label} - DETALLE`, 'HORA', 'UNDS', 'PESO (KG)']],
+              body: filtered.map((r, i) => [i + 1, new Date(r.timestamp).toLocaleTimeString(), r.quantity, r.weight.toFixed(2)]),
+              margin: { left: 15, right: 15 }
+          });
+          currentY = (doc as any).lastAutoTable.finalY + 8;
+      };
+
+      groupByType('FULL', 'JABAS LLENAS', [23, 37, 84]);
+      groupByType('EMPTY', 'JABAS VACÍAS (TARA)', [194, 65, 12]);
+      groupByType('MORTALITY', 'MERMA / MUERTOS', [185, 28, 28]);
+
+      // Firmas
+      const finalY = Math.min(260, currentY + 20);
+      doc.setDrawColor(150);
+      doc.line(30, finalY, 80, finalY);
+      doc.line(130, finalY, 180, finalY);
+      doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(0);
+      doc.text("FIRMA DESPACHADOR", 55, finalY + 5, { align: 'center' });
+      doc.text("FIRMA CLIENTE", 155, finalY + 5, { align: 'center' });
+
+      doc.save(`Reporte_Agrupado_${order.clientName.replace(/\s+/g, '_')}.pdf`);
+  };
+
   const generateCheckoutTicket = (order: ClientOrder) => {
     const totals = getTotals(order);
-    const doc = new jsPDF({ unit: 'mm', format: [80, 200] });
+    const doc = new jsPDF({ unit: 'mm', format: [80, 160] });
     const navy: [number, number, number] = [23, 37, 84];
-    let y = 10;
+    let y = 8;
     
-    if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 30, y, 20, 20); y += 22; } catch {} }
-    doc.setFontSize(10).setFont("helvetica", "bold").text(config.companyName.toUpperCase(), 40, y, { align: 'center' });
-    y += 5;
-    doc.setFontSize(8).setFont("helvetica", "normal").text("COMPROBANTE DE VENTA", 40, y, { align: 'center' });
-    y += 8;
+    if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 32, y, 16, 16); y += 18; } catch {} }
+    doc.setFontSize(9).setFont("helvetica", "bold").text(config.companyName.toUpperCase(), 40, y, { align: 'center' });
+    y += 4;
+    doc.setFontSize(7).setFont("helvetica", "normal").text("COMPROBANTE DE DESPACHO", 40, y, { align: 'center' });
+    y += 6;
 
     doc.setFontSize(7).setFont("helvetica", "bold");
-    doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 5, y); y += 4;
+    doc.text(`CLIENTE: ${order.clientName.toUpperCase()}`, 5, y); y += 3.5;
     doc.setFont("helvetica", "normal");
-    doc.text(`ID REF: #${order.id.slice(-6)}`, 5, y); y += 4;
-    doc.text(`FECHA: ${new Date().toLocaleString()}`, 5, y); y += 4;
+    doc.text(`REF: #${order.id.slice(-6)} | FECHA: ${new Date().toLocaleDateString()}`, 5, y); y += 3.5;
     doc.setFont("helvetica", "bold");
-    doc.text(`CONDICIÓN: ${order.paymentMethod === 'CASH' ? 'CONTADO (EFECTIVO)' : 'CRÉDITO'}`, 5, y); y += 6;
+    doc.text(`CONDICIÓN: ${order.paymentMethod === 'CASH' ? 'CONTADO' : 'CRÉDITO'}`, 5, y); y += 5;
     
     autoTable(doc, {
         startY: y,
         theme: 'grid',
-        headStyles: { fillColor: navy, fontSize: 7, halign: 'center' },
-        styles: { fontSize: 7, halign: 'center', cellPadding: 1.5 },
-        head: [['CONCEPTO', 'CANT', 'PESO KG']],
+        headStyles: { fillColor: [50, 50, 50], fontSize: 6.5, halign: 'center', cellPadding: 1 },
+        styles: { fontSize: 6.5, halign: 'center', cellPadding: 1 },
+        head: [['ITEM', 'CANT', 'PESO KG']],
         body: [
-            ['BRUTO (LLENAS)', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
-            ['TARA (VACÍAS)', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
-            ['MERMA / MUERTOS', totals.mortCount, totals.totalMortWeight.toFixed(2)],
-            [{ content: 'PESO NETO', styles: { fontStyle: 'bold' } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold' } }]
+            ['BRUTO', totals.fullUnitsCount, totals.totalFullWeight.toFixed(2)],
+            ['TARA', totals.emptyUnitsCount, totals.totalEmptyWeight.toFixed(2)],
+            ['MERMA', totals.mortCount, totals.totalMortWeight.toFixed(2)],
+            [{ content: 'TOTAL NETO', styles: { fontStyle: 'bold' } }, '-', { content: totals.netWeight.toFixed(2), styles: { fontStyle: 'bold' } }]
         ],
-        margin: { left: 5, right: 5 }
+        margin: { left: 4, right: 4 }
     });
 
-    y = (doc as any).lastAutoTable.finalY + 8;
-    doc.setFontSize(8).setFont("helvetica", "bold");
-    doc.text(`CANT. POLLOS NETOS:`, 5, y); doc.text(`${totals.totalBirdsFinal}`, 75, y, { align: 'right' }); y += 5;
-    doc.text(`PRECIO x KG:`, 5, y); doc.text(`S/. ${order.pricePerKg.toFixed(2)}`, 75, y, { align: 'right' }); y += 7;
-    doc.setFontSize(10).text(`TOTAL A PAGAR:`, 5, y);
-    doc.text(`S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 75, y, { align: 'right' });
-    y += 12;
-
-    doc.setFontSize(7).setFont("helvetica", "italic");
-    const footerMsg = order.paymentMethod === 'CASH' ? '¡Gracias por su compra! Vuelva pronto.' : 'Cuenta pendiente. Favor de cancelar en la fecha acordada.';
-    doc.text(footerMsg, 40, y, { align: 'center' });
-    doc.save(`Ticket_${order.clientName}.pdf`);
+    y = (doc as any).lastAutoTable.finalY + 6;
+    doc.setFontSize(7.5).setFont("helvetica", "bold");
+    doc.text(`AVES NETAS: ${totals.totalBirdsFinal}`, 5, y); y += 4;
+    doc.text(`PRECIO KG: S/. ${order.pricePerKg.toFixed(2)}`, 5, y); y += 5;
+    doc.setFontSize(9).text(`TOTAL: S/. ${(totals.netWeight * order.pricePerKg).toFixed(2)}`, 5, y);
+    
+    y += 10;
+    doc.setFontSize(6).setFont("helvetica", "italic").text("Verifique su mercadería antes de salir.", 40, y, { align: 'center' });
+    
+    doc.save(`Ticket_Compacto_${order.clientName}.pdf`);
   };
 
   const handleSaveClient = () => {
@@ -279,7 +358,7 @@ const WeighingStation: React.FC = () => {
       <div className="p-4 max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-10 pb-6 border-b-2 border-slate-100">
             <div>
-                <h2 className="text-3xl font-black text-blue-950 uppercase tracking-tight">Selección de Cliente</h2>
+                <h2 className="text-3xl font-black text-blue-950 uppercase tracking-tight">Registro de Clientes</h2>
                 <p className="text-slate-500 text-lg font-medium mt-1 uppercase">
                   {mode === WeighingType.BATCH ? `Campaña: ${currentBatch?.name || 'Cargando...'}` : `Modo Directo: ${mode}`}
                 </p>
@@ -290,14 +369,15 @@ const WeighingStation: React.FC = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {/* TARJETA NUEVO REGISTRO - AJUSTADA */}
           <button 
             onClick={() => { setEditingOrder(null); setShowClientModal(true); }} 
-            className="flex flex-col items-center justify-center min-h-[460px] bg-white border-4 border-dashed border-slate-200 rounded-[3rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
+            className="flex flex-col items-center justify-center min-h-[400px] bg-white border-4 border-dashed border-slate-200 rounded-[3rem] hover:bg-slate-50 hover:border-blue-600 transition-all group shadow-sm"
           >
             <div className="bg-blue-50 p-6 rounded-full shadow-inner mb-6 group-hover:scale-110 transition-transform">
                 <Plus size={48} className="text-blue-600" />
             </div>
-            <span className="font-black text-slate-500 uppercase text-sm tracking-widest">Nuevo Registro de Cliente</span>
+            <span className="font-black text-slate-500 uppercase text-xs tracking-widest text-center px-4">Agregar Nuevo Cliente al Proceso</span>
           </button>
           
           {orders.map(order => {
@@ -306,7 +386,7 @@ const WeighingStation: React.FC = () => {
               const percent = order.targetCrates > 0 ? Math.min((oTotals.fullUnitsCount / order.targetCrates) * 100, 100) : 0;
               
               return (
-                  <div key={order.id} className={`bg-white rounded-[2.5rem] shadow-lg border-2 transition-all duration-300 overflow-hidden flex flex-col min-h-[460px] relative cursor-pointer ${oClosed ? 'opacity-80' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
+                  <div key={order.id} className={`bg-white rounded-[2.5rem] shadow-lg border-2 transition-all duration-300 overflow-hidden flex flex-col min-h-[400px] relative cursor-pointer ${oClosed ? 'opacity-80' : 'border-slate-100 hover:border-blue-500 hover:shadow-2xl'}`} onClick={() => setActiveOrder(order)}>
                       <div className="bg-slate-900 p-6 flex justify-between items-start">
                          <div className="flex items-center space-x-4 overflow-hidden">
                              <div className={`p-3 rounded-2xl text-white shadow-lg shrink-0 ${oClosed ? 'bg-slate-700' : 'bg-blue-600'}`}>
@@ -327,43 +407,43 @@ const WeighingStation: React.FC = () => {
                           <div>
                               <div className="mb-6">
                                   <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-3">
-                                      <span className="text-slate-500">Avance de Jabas</span>
-                                      <span className="text-blue-600">{oTotals.fullUnitsCount} / {order.targetCrates || '∞'}</span>
+                                      <span className="text-slate-500">Jabas</span>
+                                      <span className="text-blue-600 font-black">{oTotals.fullUnitsCount} / {order.targetCrates || '∞'}</span>
                                   </div>
-                                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-50">
+                                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-50">
                                       <div className={`h-full rounded-full bg-blue-500 transition-all duration-700`} style={{ width: `${percent}%` }}></div>
                                   </div>
                               </div>
 
                               <div className="grid grid-cols-1 gap-3 mb-4">
                                   <div className="bg-slate-50 border border-slate-100 p-4 rounded-3xl text-center shadow-inner">
-                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Aves Netas Pesadas</p>
+                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Aves Netas</p>
                                      <p className="text-3xl font-black text-slate-900 leading-none">{oTotals.totalBirdsFinal}</p>
                                   </div>
                               </div>
 
                               <div className="grid grid-cols-3 gap-3 text-center">
-                                  <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100">
-                                      <p className="text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1">Llenas</p>
-                                      <p className="font-black text-slate-800 text-xl leading-none">{oTotals.fullUnitsCount}</p>
+                                  <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100">
+                                      <p className="text-[8px] font-black text-blue-500 uppercase mb-1">LLENAS</p>
+                                      <p className="font-black text-slate-800 text-lg leading-none">{oTotals.fullUnitsCount}</p>
                                   </div>
-                                  <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100">
-                                      <p className="text-[9px] font-black text-orange-500 uppercase tracking-tighter mb-1">Vacías</p>
-                                      <p className="font-black text-slate-800 text-xl leading-none">{oTotals.emptyUnitsCount}</p>
+                                  <div className="bg-orange-50 p-3 rounded-2xl border border-orange-100">
+                                      <p className="text-[8px] font-black text-orange-500 uppercase mb-1">VACÍAS</p>
+                                      <p className="font-black text-slate-800 text-lg leading-none">{oTotals.emptyUnitsCount}</p>
                                   </div>
-                                  <div className="bg-red-50 p-4 rounded-3xl border border-red-100">
-                                      <p className="text-[9px] font-black text-red-500 uppercase tracking-tighter mb-1">Merma</p>
-                                      <p className="font-black text-slate-800 text-xl leading-none">{oTotals.mortCount}</p>
+                                  <div className="bg-red-50 p-3 rounded-2xl border border-red-100">
+                                      <p className="text-[8px] font-black text-red-500 uppercase mb-1">MERMA</p>
+                                      <p className="font-black text-slate-800 text-lg leading-none">{oTotals.mortCount}</p>
                                   </div>
                               </div>
                           </div>
 
-                          <div className="mt-8 flex items-center justify-between border-t pt-6">
+                          <div className="mt-8 flex items-center justify-between border-t pt-4">
                              <div>
-                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Peso Neto KG</p>
-                                 <p className="text-xl font-black text-slate-900">{oTotals.netWeight.toFixed(1)}</p>
+                                 <p className="text-[9px] font-black text-slate-400 uppercase">PESO NETO (KG)</p>
+                                 <p className="text-lg font-black text-slate-900">{oTotals.netWeight.toFixed(1)}</p>
                              </div>
-                             <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${oClosed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
+                             <div className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest ${oClosed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
                                  {oClosed ? 'Cerrado' : 'En Pesaje'}
                              </div>
                           </div>
@@ -493,53 +573,70 @@ const WeighingStation: React.FC = () => {
                       <button onClick={() => setShowDetailModal(false)} className="p-2 hover:bg-slate-800 rounded-xl transition-colors"><X/></button>
                   </div>
                   <div className="p-6 overflow-y-auto space-y-6">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                              <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Total Llenas</p>
-                              <p className="font-black text-xl text-slate-900">{totals.fullUnitsCount} UND</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="bg-blue-50 p-6 rounded-[2rem] border-2 border-blue-200 text-center shadow-inner">
+                              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><Package size={14}/> Solo Llenas</p>
+                              <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalFullWeight.toFixed(2)}</p>
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG CONSOLIDADOS • {totals.fullUnitsCount} UND</p>
                           </div>
-                          <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100">
-                              <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-1">Total Tara</p>
-                              <p className="font-black text-xl text-slate-900">{totals.emptyUnitsCount} UND</p>
+                          <div className="bg-orange-50 p-6 rounded-[2rem] border-2 border-orange-200 text-center shadow-inner">
+                              <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><PackageOpen size={14}/> Solo Vacías</p>
+                              <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalEmptyWeight.toFixed(2)}</p>
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG CONSOLIDADOS • {totals.emptyUnitsCount} UND</p>
                           </div>
-                          <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
-                              <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">Peso Neto</p>
-                              <p className="font-black text-xl text-slate-900">{totals.netWeight.toFixed(2)} KG</p>
-                          </div>
-                          <div className="bg-yellow-50 p-4 rounded-2xl border border-yellow-100">
-                              <p className="text-[9px] font-black text-yellow-600 uppercase tracking-widest mb-1">Aves Netas</p>
-                              <p className="font-black text-xl text-slate-900">{totals.totalBirdsFinal}</p>
+                          <div className="bg-red-50 p-6 rounded-[2rem] border-2 border-red-200 text-center shadow-inner">
+                              <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-2 flex items-center justify-center gap-2"><AlertOctagon size={14}/> Solo Merma</p>
+                              <p className="font-black text-3xl text-slate-900 leading-none">{totals.totalMortWeight.toFixed(2)}</p>
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 uppercase">KG CONSOLIDADOS • {totals.mortCount} UND</p>
                           </div>
                       </div>
 
-                      <div className="space-y-4">
-                          <h4 className="font-black text-[10px] text-slate-400 uppercase tracking-widest border-b pb-2">Historial de Registros</h4>
-                          <div className="space-y-2">
-                              {activeOrder.records.map((r, idx) => (
-                                  <div key={r.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                      <div className="flex items-center gap-4">
-                                          <span className="text-[10px] font-black text-slate-300">#{activeOrder.records.length - idx}</span>
-                                          <div className={`w-2 h-2 rounded-full ${r.type === 'FULL' ? 'bg-blue-500' : r.type === 'EMPTY' ? 'bg-orange-500' : 'bg-red-500'}`}></div>
-                                          <div>
-                                              <p className="text-xs font-black text-slate-800 uppercase">{r.type === 'FULL' ? 'LLENA' : r.type === 'EMPTY' ? 'VACÍA' : 'MERMA'}</p>
-                                              <p className="text-[8px] text-slate-400 font-bold">{new Date(r.timestamp).toLocaleTimeString()}</p>
-                                          </div>
-                                      </div>
-                                      <div className="text-right">
-                                          <p className="text-sm font-black text-slate-900">{r.weight.toFixed(2)} KG</p>
-                                          <p className="text-[9px] text-slate-500 font-bold uppercase">{r.quantity} Unidades</p>
-                                      </div>
-                                  </div>
-                              ))}
-                              {activeOrder.records.length === 0 && (
-                                  <div className="py-10 text-center text-slate-300 font-black uppercase text-xs tracking-widest">No hay registros aún</div>
-                              )}
+                      <div className="bg-slate-900 p-6 rounded-[2rem] text-white flex justify-around items-center">
+                          <div className="text-center">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Resultado Neto</p>
+                              <p className="text-3xl font-black text-emerald-400">{totals.netWeight.toFixed(2)} KG</p>
+                          </div>
+                          <div className="w-px h-10 bg-slate-800"></div>
+                          <div className="text-center">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Aves Despachadas</p>
+                              <p className="text-3xl font-black text-yellow-400">{totals.totalBirdsFinal}</p>
                           </div>
                       </div>
+
+                      {/* DETALLE AGRUPADO POR TIPO EN LA INTERFAZ */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {types.map(t => (
+                            <div key={t.t} className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-[280px]">
+                                <div className={`p-2 text-center text-white font-black text-[9px] uppercase ${t.bg}`}>{t.l}</div>
+                                <div className="p-2 space-y-1 overflow-y-auto bg-slate-50/50 flex-1">
+                                    {activeOrder.records.filter(r => r.type === t.t).map((r, i) => (
+                                        <div key={r.id} className="bg-white p-2 rounded-lg border border-slate-100 flex justify-between items-center shadow-sm">
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] font-black text-slate-800">{r.weight.toFixed(2)} KG</span>
+                                                <span className="text-[7px] text-slate-400 uppercase font-bold">Lote #{i+1}</span>
+                                            </div>
+                                            <span className="text-[8px] font-black text-slate-400">X{r.quantity}</span>
+                                        </div>
+                                    ))}
+                                    {activeOrder.records.filter(r => r.type === t.t).length === 0 && (
+                                        <div className="h-full flex items-center justify-center text-[8px] text-slate-300 font-black uppercase">Vacío</div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                      </div>
                   </div>
-                  <div className="p-6 bg-slate-50 border-t flex gap-3">
-                      <button onClick={() => setShowDetailModal(false)} className="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Cerrar Detalles</button>
-                      <button onClick={() => generateCheckoutTicket(activeOrder)} className="px-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-100 transition-colors"><Printer size={20}/></button>
+                  <div className="p-6 bg-slate-50 border-t flex flex-col md:flex-row gap-3">
+                      <button 
+                        onClick={() => generateDetailedCorporateReport(activeOrder)} 
+                        className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                      >
+                        <FileCheck size={18}/> REPORTE CORPORATIVO (A4)
+                      </button>
+                      <div className="flex gap-3">
+                        <button onClick={() => generateCheckoutTicket(activeOrder)} className="px-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-100 transition-colors flex items-center gap-2 font-black text-[10px] uppercase"><Printer size={20}/> TICKET</button>
+                        <button onClick={() => setShowDetailModal(false)} className="px-6 bg-slate-200 text-slate-600 rounded-2xl font-black uppercase text-[10px]">Cerrar</button>
+                      </div>
                   </div>
               </div>
           </div>

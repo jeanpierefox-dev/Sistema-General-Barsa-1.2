@@ -1,14 +1,15 @@
 
 import React, { useState, useContext, useEffect } from 'react';
 import { AppConfig, UserRole } from '../../types';
-import { getConfig, saveConfig, resetApp } from '../../services/storage';
-import { Save, Check, AlertTriangle, Building2, ShieldAlert, Cloud, CloudOff, Bluetooth, Printer, Loader2, Link2, Info, X, Search, Wifi, RefreshCw, Database, Copy, Smartphone } from 'lucide-react';
+import { getConfig, saveConfig, resetApp, uploadLocalDataToCloud } from '../../services/storage';
+import { Save, Check, AlertTriangle, Building2, ShieldAlert, Cloud, CloudOff, Bluetooth, Printer, Loader2, Link2, Info, X, Search, Wifi, RefreshCw, Database, Copy, Smartphone, UploadCloud } from 'lucide-react';
 import { AuthContext } from '../../App';
 
 const Configuration: React.FC = () => {
   const [config, setConfig] = useState<AppConfig>(getConfig());
   const [saved, setSaved] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const { user } = useContext(AuthContext);
   const [searchModal, setSearchModal] = useState<'printer' | 'scale' | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -38,6 +39,20 @@ const Configuration: React.FC = () => {
       const newConfig = { ...config, cloudEnabled: false };
       setConfig(newConfig);
       saveConfig(newConfig);
+  };
+
+  const handleManualUpload = async () => {
+      if (!confirm("Esta acción subirá todos sus datos locales (Usuarios, Lotes y Clientes) a la Nube. ¿Está seguro de continuar?")) return;
+      
+      setIsUploading(true);
+      try {
+          await uploadLocalDataToCloud();
+          alert("¡Datos subidos exitosamente! Ahora sus otros dispositivos pueden sincronizarse.");
+      } catch (e) {
+          alert("Error al subir datos: " + (e as Error).message);
+      } finally {
+          setIsUploading(false);
+      }
   };
 
   const startSearch = (type: 'printer' | 'scale') => {
@@ -99,13 +114,35 @@ const Configuration: React.FC = () => {
                     )}
                 </div>
 
+                {config.cloudEnabled && (
+                    <div className="bg-emerald-50 p-6 rounded-2xl border-2 border-dashed border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                            <UploadCloud className="text-emerald-500 shrink-0" size={32}/>
+                            <div>
+                                <h4 className="font-black text-emerald-900 text-xs uppercase mb-1">Cargar datos existentes</h4>
+                                <p className="text-[10px] text-emerald-700 leading-relaxed font-bold uppercase tracking-tight">
+                                    Presione para subir su información local actual a la nube por primera vez.
+                                </p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handleManualUpload} 
+                            disabled={isUploading}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                            {isUploading ? <Loader2 className="animate-spin" size={16}/> : <Database size={16}/>}
+                            {isUploading ? 'Subiendo...' : 'Subir base de datos a Nube'}
+                        </button>
+                    </div>
+                )}
+
                 <div className="bg-blue-50/50 p-6 rounded-2xl border-2 border-dashed border-blue-100">
                     <div className="flex items-start gap-4">
                         <Smartphone className="text-blue-500 shrink-0" size={24}/>
                         <div>
                             <h4 className="font-black text-blue-900 text-xs uppercase mb-1">¿Cómo conectar otro celular o tablet?</h4>
                             <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
-                                Para compartir los mismos datos en tiempo real, instala esta aplicación en el otro dispositivo y **copia exactamente** los campos de abajo. Una vez configurados con el mismo proyecto de Firebase, ambos dispositivos se sincronizarán al instante.
+                                Una vez que haya subido sus datos con el botón verde de arriba, instale la app en otro dispositivo, configure estos mismos campos de Firebase y podrá entrar con los mismos usuarios.
                             </p>
                         </div>
                     </div>

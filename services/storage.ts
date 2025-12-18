@@ -97,6 +97,32 @@ export const forceSyncUsers = async () => {
     return false;
 };
 
+// FUNCIÓN PARA SUBIR DATOS LOCALES A LA NUBE
+export const uploadLocalDataToCloud = async () => {
+    const config = getConfig();
+    if (!config.cloudEnabled || !config.firebaseConfig.apiKey) {
+        throw new Error("La nube no está configurada o activada.");
+    }
+    
+    if (!firebaseDb) initFirebase(config);
+    if (!firebaseDb) throw new Error("No se pudo conectar con la base de datos.");
+
+    try {
+        const users = getUsers();
+        const batches = getBatches();
+        const orders = getOrders();
+
+        await set(ref(firebaseDb, 'data/users'), users);
+        await set(ref(firebaseDb, 'data/batches'), batches);
+        await set(ref(firebaseDb, 'data/orders'), orders);
+        
+        return true;
+    } catch (e) {
+        console.error("Manual Upload Error:", e);
+        throw e;
+    }
+};
+
 const pushToCloud = async (path: string, data: any) => {
     const config = getConfig();
     if (!config.cloudEnabled || !firebaseDb) return;

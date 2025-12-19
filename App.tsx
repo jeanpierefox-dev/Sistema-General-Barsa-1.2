@@ -1,152 +1,79 @@
 
-import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { User, UserRole, AppConfig } from './types';
-import { LogOut, ArrowLeft, RefreshCw, Cloud, CloudOff, Wifi } from 'lucide-react';
-import { getConfig } from './services/storage';
-
-// Pages
-import LoginPage from './components/pages/Login';
+import React, { createContext, useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { User } from './types';
+import Login from './components/pages/Login';
 import Dashboard from './components/pages/Dashboard';
-import UserManagement from './components/pages/UserManagement';
 import BatchList from './components/pages/BatchList';
 import WeighingStation from './components/pages/WeighingStation';
 import Collections from './components/pages/Collections';
 import Reports from './components/pages/Reports';
+import UserManagement from './components/pages/UserManagement';
 import Configuration from './components/pages/Configuration';
 
-// Context
-export const AuthContext = React.createContext<{
+// Export AuthContext for global session management
+export const AuthContext = createContext<{
   user: User | null;
-  setUser: (u: User | null) => void;
-  logout: () => void;
-}>({ user: null, setUser: () => {}, logout: () => {} });
+  setUser: React.Dispatch<React.SetStateAction<User | null>>;
+}>({
+  user: null,
+  setUser: () => {},
+});
 
-// Simple Container Layout without Sidebar
-const Container: React.FC<{ children: React.ReactNode; title?: string; showBack?: boolean }> = ({ children, title, showBack }) => {
-  const { user, logout } = React.useContext(AuthContext);
-  const navigate = useNavigate();
-  const [config, setConfig] = useState<AppConfig>(getConfig());
-
-  useEffect(() => {
-    const handleConfigUpdate = () => {
-      setConfig(getConfig());
-    };
-    window.addEventListener('avi_data_config', handleConfigUpdate);
-    return () => window.removeEventListener('avi_data_config', handleConfigUpdate);
-  }, []);
-
-  const handleUpdate = () => {
-    window.location.reload();
-  };
-
-  if (!user) return <Navigate to="/login" />;
-
-  const isCloudActive = config.cloudEnabled && config.firebaseConfig.apiKey;
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-youthful">
-      {/* App Bar - Navy Blue */}
-      <header className="bg-blue-950 text-white shadow-lg p-3 sticky top-0 z-50 border-b border-blue-900">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            {showBack && (
-              <button onClick={() => navigate(-1)} className="p-1 hover:bg-blue-900 rounded-full transition-colors">
-                <ArrowLeft size={24} />
-              </button>
-            )}
-            <div className="flex flex-col">
-              <h1 className="text-lg font-black tracking-tight uppercase leading-none">
-                {title || config.appName || 'SISTEMA BARSA'}
-              </h1>
-              <div className="flex items-center gap-1.5 mt-1">
-                {isCloudActive ? (
-                  <div className="flex items-center gap-1 group cursor-help">
-                    <Cloud size={12} className="text-emerald-400 animate-pulse" />
-                    <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Nube Conectada</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 opacity-50">
-                    <CloudOff size={12} className="text-slate-400" />
-                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Modo Local</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <div className="text-right hidden md:block mr-2 border-r border-blue-800 pr-4">
-              <p className="text-[10px] font-black text-blue-400 uppercase leading-none mb-1">Usuario Activo</p>
-              <p className="text-xs font-bold text-white leading-none">{user.name}</p>
-            </div>
-
-            {user.role === UserRole.ADMIN && (
-              <button
-                onClick={handleUpdate}
-                className="bg-blue-800 hover:bg-blue-700 p-2 rounded-lg transition-all shadow-md flex items-center gap-2 group"
-                title="Actualizar App"
-              >
-                <RefreshCw size={18} className="group-active:rotate-180 transition-transform duration-500" />
-                <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">Actualizar</span>
-              </button>
-            )}
-
-            <button
-              onClick={logout}
-              className="bg-red-600 hover:bg-red-700 p-2 rounded-lg transition-colors shadow-md flex items-center gap-2"
-              title="Cerrar Sesión"
-            >
-              <LogOut size={18} />
-              <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">Salir</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <main className="flex-1 max-w-6xl mx-auto w-full p-4">
-        {children}
-      </main>
-    </div>
-  );
+// Component to protect routes requiring authentication
+const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = React.useContext(AuthContext);
+  return user ? <>{children}</> : <Navigate to="/login" />;
 };
 
 const App: React.FC = () => {
-    const [user, setUserState] = useState<User | null>(() => {
-        try {
-            const saved = localStorage.getItem('avi_session_user');
-            return saved ? JSON.parse(saved) : null;
-        } catch { return null; }
-    });
+  const [user, setUser] = useState<User | null>(null);
 
-    const setUser = (u: User | null) => {
-        if (u) localStorage.setItem('avi_session_user', JSON.stringify(u));
-        else localStorage.removeItem('avi_session_user');
-        setUserState(u);
-    };
+  // Restore session from sessionStorage on load
+  useEffect(() => {
+    const saved = sessionStorage.getItem('avi_auth');
+    if (saved) setUser(JSON.parse(saved));
+  }, []);
 
-    const logout = () => setUser(null);
+  // Update sessionStorage when user state changes
+  useEffect(() => {
+    if (user) sessionStorage.setItem('avi_auth', JSON.stringify(user));
+    else sessionStorage.removeItem('avi_auth');
+  }, [user]);
 
-    return (
-        <AuthContext.Provider value={{ user, setUser, logout }}>
-            <HashRouter>
-                <Routes>
-                    <Route path="/login" element={<LoginPage />} />
-                    
-                    <Route path="/" element={<Container><Dashboard /></Container>} />
-                    <Route path="/usuarios" element={<Container title="Gestión de Usuarios" showBack><UserManagement /></Container>} />
-                    <Route path="/lotes" element={<Container title="Lotes de Producción" showBack><BatchList /></Container>} />
-                    <Route path="/weigh/:mode/:batchId?" element={<Container title="Estación de Pesaje" showBack><WeighingStation /></Container>} />
-                    <Route path="/cobranza" element={<Container title="Cobranza y Caja" showBack><Collections /></Container>} />
-                    <Route path="/reportes" element={<Container title="Reportes y Estadísticas" showBack><Reports /></Container>} />
-                    <Route path="/config" element={<Container title="Configuración" showBack><Configuration /></Container>} />
-                    
-                    <Route path="*" element={<Navigate to="/" />} />
-                </Routes>
-            </HashRouter>
-        </AuthContext.Provider>
-    );
+  return (
+    <AuthContext.Provider value={{ user, setUser }}>
+      <BrowserRouter>
+        <div className="min-h-screen bg-slate-100 font-sans">
+          {user && (
+            <nav className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-50">
+              <span className="font-black tracking-tighter text-xl">AVICONTROL <span className="text-blue-500">PRO</span></span>
+              <button 
+                onClick={() => setUser(null)}
+                className="text-[10px] font-black uppercase tracking-widest bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20 transition-all"
+              >
+                Cerrar Sesión
+              </button>
+            </nav>
+          )}
+          <main className={user ? "p-6 max-w-7xl mx-auto" : ""}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+              <Route path="/lotes" element={<PrivateRoute><BatchList /></PrivateRoute>} />
+              <Route path="/weigh/:mode" element={<PrivateRoute><WeighingStation /></PrivateRoute>} />
+              <Route path="/weigh/:mode/:batchId" element={<PrivateRoute><WeighingStation /></PrivateRoute>} />
+              <Route path="/cobranza" element={<PrivateRoute><Collections /></PrivateRoute>} />
+              <Route path="/reportes" element={<PrivateRoute><Reports /></PrivateRoute>} />
+              <Route path="/usuarios" element={<PrivateRoute><UserManagement /></PrivateRoute>} />
+              <Route path="/config" element={<PrivateRoute><Configuration /></PrivateRoute>} />
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          </main>
+        </div>
+      </BrowserRouter>
+    </AuthContext.Provider>
+  );
 };
 
 export default App;

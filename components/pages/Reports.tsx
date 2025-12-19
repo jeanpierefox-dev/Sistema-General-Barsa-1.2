@@ -1,10 +1,11 @@
+
 import React, { useEffect, useState, useContext } from 'react';
-import { getBatches, getOrders, getConfig, getUsers } from '../../services/storage';
-import { Batch, ClientOrder, WeighingType, UserRole } from '../../types';
-import { ChevronDown, ChevronUp, Package, ShoppingCart, List, Printer, AlertOctagon, FileText } from 'lucide-react';
-import { AuthContext } from '../../App';
-import jsPDF from 'jspdf';
+import { getBatches, getOrders, getConfig } from '../../services/storage';
+import { Batch, ClientOrder, WeighingRecord } from '../../types';
+import { ChevronDown, ChevronUp, Package, TrendingUp, User, List, Layers, Bird, Scale, AlertCircle, PieChart, Download, FileText, Printer } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { AuthContext } from '../../App';
 
 const Reports: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -14,142 +15,169 @@ const Reports: React.FC = () => {
   const config = getConfig();
 
   useEffect(() => {
-    refresh();
+      setBatches(getBatches());
+      setOrders(getOrders());
   }, [user]);
 
-  const refresh = () => {
-      const allBatches = getBatches();
-      const allOrders = getOrders();
-      const allUsers = getUsers();
-      
-      if (user?.role === UserRole.ADMIN) {
-          setBatches(allBatches);
-          setOrders(allOrders);
-      } else if (user?.role === UserRole.GENERAL) {
-          const subordinateIds = allUsers.filter(u => u.parentId === user.id).map(u => u.id);
-          setBatches(allBatches.filter(b => b.createdBy === user.id || subordinateIds.includes(b.createdBy || '')));
-          setOrders(allOrders.filter(o => o.createdBy === user.id || subordinateIds.includes(o.createdBy || '')));
-      } else {
-          setBatches(allBatches.filter(b => b.createdBy === user?.id));
-          setOrders(allOrders.filter(o => o.createdBy === user?.id));
-      }
-  }
+  const calculateFinancials = (order: ClientOrder) => {
+    const fw = order.records.filter(r => r.type === 'FULL').reduce((a, b) => a + b.weight, 0);
+    const tw = order.records.filter(r => r.type === 'EMPTY').reduce((a, b) => a + b.weight, 0);
+    const mw = order.records.filter(r => r.type === 'MORTALITY').reduce((a, b) => a + b.weight, 0);
+    const net = fw - tw - mw;
+    const birds = (order.records.filter(r => r.type === 'FULL').reduce((a, b) => a + b.quantity, 0) * 9) - 
+                  order.records.filter(r => r.type === 'MORTALITY').reduce((a, b) => a + b.quantity, 0);
+    return { net, birds, fullWeight: fw, emptyWeight: tw, mortWeight: mw };
+  };
 
-  const getStats = (filterFn: (o: ClientOrder) => boolean) => {
-    const filteredOrders = orders.filter(filterFn);
-    let totalFull = 0, totalEmpty = 0, totalNet = 0, totalMort = 0;
-    let totalFullCount = 0, totalMortCount = 0;
+  const getBatchTotals = (batchId: string) => {
+    const batchOrders = orders.filter(o => o.batchId === batchId);
+    let tNet = 0, tFull = 0, tEmpty = 0, tMort = 0, tBirds = 0;
+    batchOrders.forEach(o => {
+        const fin = calculateFinancials(o);
+        tNet += fin.net; tFull += fin.fullWeight; tEmpty += fin.emptyWeight; tMort += fin.mortWeight; tBirds += fin.birds;
+    });
+    return { tNet, tFull, tEmpty, tMort, tBirds, count: batchOrders.length, batchOrders };
+  };
+
+  const generateDividedReportPDF = (order: ClientOrder) => {
+    const doc = new jsPDF();
+    const navy: [number, number, number] = [15, 23, 42];
+    const stats = calculateFinancials(order);
     
-    filteredOrders.forEach(o => {
-      const wFull = o.records.filter(r => r.type === 'FULL').reduce((a, b) => a + b.weight, 0);
-      const wEmpty = o.records.filter(r => r.type === 'EMPTY').reduce((a, b) => a + b.weight, 0);
-      const wMort = o.records.filter(r => r.type === 'MORTALITY').reduce((a, b) => a + b.weight, 0);
-      const qFull = o.records.filter(r => r.type === 'FULL').reduce((a, b) => a + b.quantity, 0);
-      const qMort = o.records.filter(r => r.type === 'MORTALITY').reduce((a, b) => a + b.quantity, 0);
-
-      totalFull += wFull; totalEmpty += wEmpty; totalMort += wMort;
-      totalFullCount += qFull; totalMortCount += qMort;
-      let net = wFull - wEmpty - wMort;
-      if (o.weighingMode === WeighingType.SOLO_POLLO) net = wFull;
-      totalNet += net;
+    // Totales del lote
+    const allBatchOrders = getOrders().filter(o => o.batchId === order.batchId);
+    let totalBatchWeight = 0;
+    allBatchOrders.forEach(bo => {
+        const boFin = calculateFinancials(bo);
+        totalBatchWeight += boFin.net;
     });
 
-    const totalBirdsFinal = Math.max(0, (totalFullCount * 9) - totalMortCount);
-    const avgWeight = totalFullCount > 0 ? ((totalFull - totalEmpty) / (totalFullCount * 9)) : 0;
-    return { totalFull, totalEmpty, totalMort, totalNet, orderCount: filteredOrders.length, batchOrders: filteredOrders, totalBirdsFinal, avgWeight };
-  };
+    const paid = (order.payments || []).reduce((a, b) => a + b.amount, 0);
+    const totalSale = stats.net * (order.pricePerKg || 0);
+    const debt = totalSale - paid;
 
-  const printBatchReport = (batchName: string, stats: any) => {
-      const doc = new jsPDF();
-      const navy: [number, number, number] = [23, 37, 84];
+    // Header Corporativo
+    doc.setFont("helvetica", "bold").setFontSize(22).setTextColor(navy[0], navy[1], navy[2]);
+    doc.text(config.companyName.toUpperCase(), 105, 15, { align: 'center' });
+    doc.setFontSize(9).setTextColor(100).text("REPORTE HISTÓRICO DE AUDITORÍA", 105, 21, { align: 'center' });
+    doc.setDrawColor(navy[0], navy[1], navy[2]).setLineWidth(0.5).line(20, 24, 190, 24);
 
-      if (config.logoUrl) { try { doc.addImage(config.logoUrl, 'PNG', 105 - 12, 10, 24, 24); } catch {} }
-      doc.setFont("helvetica", "bold").setFontSize(22).setTextColor(navy[0], navy[1], navy[2]);
-      doc.text(config.companyName.toUpperCase(), 105, 42, { align: 'center' });
-      doc.setFontSize(11).setTextColor(100).text("LIQUIDACIÓN CONSOLIDADA DE CAMPAÑA", 105, 50, { align: 'center' });
-      doc.text(`LOTE: ${batchName.toUpperCase()}  |  EMISIÓN: ${new Date().toLocaleString()}`, 105, 58, { align: 'center' });
+    doc.setFontSize(10).setTextColor(40).text(`CLIENTE: ${order.clientName}`, 20, 35);
+    doc.text(`AUDITADO: ${new Date().toLocaleString()}`, 190, 35, { align: 'right' });
 
+    // RESUMEN: Lote -> Cliente -> Deuda
+    autoTable(doc, {
+      startY: 42,
+      head: [['INDICADOR OPERATIVO', 'RESULTADO']],
+      body: [
+        ['PESO TOTAL DEL LOTE (KG)', totalBatchWeight.toFixed(2)],
+        ['PESO TOTAL DEL CLIENTE (KG)', stats.net.toFixed(2)],
+        [{ content: 'DEUDA PENDIENTE (S/.)', styles: { fontStyle: 'bold', textColor: [180, 0, 0] } }, { content: 'S/. ' + debt.toFixed(2), styles: { fontStyle: 'bold', textColor: [180, 0, 0] } }]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: navy, halign: 'center' },
+      styles: { fontSize: 10 }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 10;
+
+    // Detalle Dividido por Tipo
+    const sections = [
+      { title: 'DETALLE: JABAS LLENAS (CARGA)', type: 'FULL', color: [37, 99, 235] },
+      { title: 'DETALLE: JABAS VACÍAS (TARA)', type: 'EMPTY', color: [234, 88, 12] },
+      { title: 'DETALLE: MERMA (MORTALIDAD)', type: 'MORTALITY', color: [220, 38, 38] }
+    ];
+
+    sections.forEach(sec => {
+      const items = order.records.filter(r => r.type === sec.type);
+      if (items.length === 0) return;
+
+      if (currentY > 260) { doc.addPage(); currentY = 20; }
+      doc.setFontSize(10).setTextColor(sec.color[0], sec.color[1], sec.color[2]).text(sec.title, 20, currentY);
+      
       autoTable(doc, {
-        startY: 68,
-        theme: 'grid',
-        headStyles: { fillColor: navy, fontSize: 10, halign: 'center' },
-        head: [['CONCEPTO OPERATIVO', 'DATO / CANTIDAD', 'PESO KG']],
-        body: [
-            ['PESO BRUTO TOTAL', stats.batchOrders.length + ' Clientes', stats.totalFull.toFixed(2)],
-            ['PESO TARA TOTAL', '-', stats.totalEmpty.toFixed(2)],
-            ['MERMA / MUERTOS', '-', stats.totalMort.toFixed(2)],
-            [{ content: 'PESO NETO FACTURABLE', styles: { fontStyle: 'bold', fillColor: [245, 245, 245] } }, '-', { content: stats.totalNet.toFixed(2), styles: { fontStyle: 'bold', fillColor: [245, 245, 245] } }],
-            [{ content: 'TOTAL POLLOS NETOS', styles: { fontStyle: 'bold' } }, { content: stats.totalBirdsFinal.toString(), styles: { fontStyle: 'bold' } }, '-'],
-            [{ content: 'PROMEDIO POR AVE', styles: { fontStyle: 'bold' } }, '-', { content: stats.avgWeight.toFixed(3) + ' KG', styles: { fontStyle: 'bold' } }]
-        ],
-        styles: { fontSize: 9, halign: 'center', cellPadding: 3 }
+        startY: currentY + 3,
+        head: [['#', 'CANTIDAD', 'PESO (KG)', 'HORA']],
+        body: items.map((r, i) => [
+          i + 1,
+          r.quantity,
+          r.weight.toFixed(2),
+          new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        ]),
+        theme: 'striped',
+        styles: { fontSize: 7, halign: 'center' },
+        // Fixed: Explicitly cast to [number, number, number] tuple as required by Color type in jspdf-autotable
+        headStyles: { fillColor: sec.color as [number, number, number] },
+        margin: { left: 20, right: 20 }
       });
+      currentY = (doc as any).lastAutoTable.finalY + 12;
+    });
 
-      doc.save(`Lote_${batchName}.pdf`);
+    doc.save(`Auditoria_${order.clientName}_Final.pdf`);
   };
-
-  const ReportCard = ({ id, title, subtitle, icon, stats }: any) => {
-      const isExpanded = expandedBatch === id;
-      return (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden mb-6 transition-all hover:shadow-md">
-            <div className="p-5 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => setExpandedBatch(isExpanded ? null : id)}>
-                <div className="flex items-center space-x-5">
-                    <div className={`p-4 rounded-2xl ${id === 'direct-sales' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-800'}`}>{icon}</div>
-                    <div>
-                        <h3 className="text-xl font-black text-slate-900 leading-none uppercase tracking-tight">{title}</h3>
-                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1.5">{subtitle} • {stats.orderCount} Clientes</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-10">
-                    <div className="text-right hidden sm:block">
-                        <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Kg Netos</p>
-                        <p className="text-2xl font-black text-slate-900">{stats.totalNet.toFixed(1)}</p>
-                    </div>
-                    {isExpanded ? <ChevronUp className="text-slate-400" /> : <ChevronDown className="text-slate-400" />}
-                </div>
-            </div>
-
-            {isExpanded && (
-            <div className="bg-slate-50 border-t border-slate-200 p-6 animate-fade-in">
-                <div className="flex justify-between items-center mb-6">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Análisis de Campaña</h4>
-                    <button onClick={() => printBatchReport(title, stats)} className="flex items-center text-[10px] font-black text-blue-800 bg-white border-2 border-blue-100 px-5 py-3 rounded-xl hover:bg-blue-50 transition-all uppercase tracking-widest"><Printer size={16} className="mr-2"/> Reporte PDF</button>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center shadow-sm">
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1.5">Aves Netas</p>
-                        <p className="font-black text-2xl text-emerald-600">{stats.totalBirdsFinal}</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center shadow-sm">
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1.5">Merma Total</p>
-                        <p className="font-black text-2xl text-red-600">{stats.totalMort.toFixed(1)} KG</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center shadow-sm">
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1.5">Kg Brutos</p>
-                        <p className="font-black text-2xl text-blue-900">{stats.totalFull.toFixed(1)}</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-2xl border border-slate-100 text-center shadow-sm">
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1.5">Promedio Ave</p>
-                        <p className="font-black text-2xl text-slate-800">{stats.avgWeight.toFixed(3)}</p>
-                    </div>
-                </div>
-            </div>
-            )}
-        </div>
-      );
-  }
-
-  const directSalesStats = getStats(o => !o.batchId);
 
   return (
-    <div className="space-y-8 pb-10">
-      <div><h2 className="text-3xl font-black text-blue-950 uppercase tracking-tight">Reportes de Producción</h2><p className="text-slate-500 font-medium">Información consolidada por jerarquía</p></div>
-      <div>
-        {directSalesStats.orderCount > 0 && ( <ReportCard id="direct-sales" title="Operaciones Express" subtitle="Ventas Fuera de Lote" icon={<ShoppingCart size={28}/>} stats={directSalesStats} /> )}
-        {batches.map(batch => {
-          const stats = getStats(o => o.batchId === batch.id);
-          return ( <ReportCard key={batch.id} id={batch.id} title={batch.name} subtitle="Campaña en Proceso" icon={<Package size={28}/>} stats={stats} /> );
-        })}
+    <div className="space-y-6 max-w-5xl mx-auto pb-10">
+      <div className="bg-white p-6 rounded-3xl border shadow-sm flex justify-between items-center border-slate-200">
+        <div>
+            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Archivo de Auditoría</h2>
+            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest">Historial de Operaciones Registradas</p>
+        </div>
+        <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl border border-blue-100 shadow-inner"><TrendingUp size={28}/></div>
+      </div>
+
+      <div className="grid gap-4">
+          {batches.map(batch => {
+              const totals = getBatchTotals(batch.id);
+              const isExp = expandedBatch === batch.id;
+              return (
+                  <div key={batch.id} className={`bg-white rounded-3xl border transition-all duration-300 overflow-hidden ${isExp ? 'border-blue-500 shadow-xl ring-4 ring-blue-50' : 'border-slate-200 shadow-sm'}`}>
+                      <div className={`p-5 flex items-center justify-between cursor-pointer ${isExp ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}`} onClick={() => setExpandedBatch(isExp ? null : batch.id)}>
+                          <div className="flex items-center gap-4">
+                              <Package size={24} className={isExp ? 'text-white' : 'text-slate-400'}/>
+                              <div>
+                                  <h3 className="font-black text-sm uppercase tracking-tight">{batch.name}</h3>
+                                  <p className={`text-[9px] font-bold uppercase ${isExp ? 'text-blue-100' : 'text-slate-400'}`}>{totals.count} Liquidaciones</p>
+                              </div>
+                          </div>
+                          <div className="flex items-center gap-6">
+                              <div className={`px-4 py-1.5 rounded-xl border flex items-center gap-4 ${isExp ? 'bg-white/10 border-white/20' : 'bg-blue-50 border-blue-100'}`}>
+                                  <div className="text-right">
+                                      <p className={`text-[7px] font-bold uppercase ${isExp ? 'text-white/60' : 'text-blue-500'}`}>Neto Lote</p>
+                                      <p className={`text-base font-black font-mono leading-none ${isExp ? 'text-white' : 'text-blue-700'}`}>{totals.tNet.toFixed(1)} KG</p>
+                                  </div>
+                              </div>
+                              {isExp ? <ChevronUp size={20}/> : <ChevronDown size={20} className="text-slate-300"/>}
+                          </div>
+                      </div>
+
+                      {isExp && (
+                          <div className="p-6 bg-slate-50 border-t space-y-4 animate-fade-in">
+                              {totals.batchOrders.map(o => (
+                                  <div key={o.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:border-blue-400 transition-all flex flex-col md:flex-row justify-between items-center gap-4">
+                                      <div className="flex items-center gap-4 flex-1">
+                                          <div className="bg-slate-100 p-3 rounded-xl text-slate-500 shadow-inner"><User size={20}/></div>
+                                          <div>
+                                              <h5 className="font-black text-slate-900 uppercase text-[14px] leading-tight tracking-tight">{o.clientName}</h5>
+                                              <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{o.records.length} Pesadas Registradas</p>
+                                          </div>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                          <div className="bg-slate-50 px-5 py-3 rounded-2xl border text-right">
+                                              <p className="text-[8px] font-black text-slate-400 uppercase leading-none mb-1.5">Peso Neto</p>
+                                              <p className="text-lg font-black text-blue-900 font-mono leading-none">{calculateFinancials(o).net.toFixed(1)} KG</p>
+                                          </div>
+                                          <button onClick={() => generateDividedReportPDF(o)} className="bg-slate-900 text-white p-4 rounded-2xl shadow-lg hover:bg-black transition-all active:scale-95">
+                                              <FileText size={20}/>
+                                          </button>
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+              );
+          })}
       </div>
     </div>
   );

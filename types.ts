@@ -5,6 +5,12 @@ export enum UserRole {
   OPERATOR = 'OPERATOR'
 }
 
+export enum WeighingType {
+  BATCH = 'BATCH',
+  SOLO_POLLO = 'SOLO_POLLO',
+  SOLO_JABAS = 'SOLO_JABAS'
+}
+
 export interface User {
   id: string;
   username: string;
@@ -15,10 +21,33 @@ export interface User {
   allowedModes?: WeighingType[];
 }
 
-export enum WeighingType {
-  BATCH = 'BATCH',
-  SOLO_POLLO = 'SOLO_POLLO',
-  SOLO_JABAS = 'SOLO_JABAS'
+export interface AppConfig {
+  appName: string;
+  companyName: string;
+  logoUrl?: string;
+  cloudEnabled: boolean;
+  scaleConnected: boolean;
+  printerConnected: boolean;
+  defaultFullCrateBatch?: number;
+  defaultEmptyCrateBatch?: number;
+  firebaseConfig: {
+    apiKey: string;
+    authDomain: string;
+    databaseURL: string;
+    projectId: string;
+    storageBucket: string;
+    messagingSenderId: string;
+    appId: string;
+  };
+}
+
+export interface Batch {
+  id: string;
+  name: string;
+  totalCratesLimit: number;
+  createdAt: number;
+  status: 'ACTIVE' | 'CLOSED';
+  createdBy?: string;
 }
 
 export interface WeighingRecord {
@@ -29,6 +58,13 @@ export interface WeighingRecord {
   type: 'FULL' | 'EMPTY' | 'MORTALITY';
 }
 
+export interface Payment {
+  id: string;
+  amount: number;
+  timestamp: number;
+  note?: string;
+}
+
 export interface ClientOrder {
   id: string;
   clientName: string;
@@ -37,46 +73,9 @@ export interface ClientOrder {
   status: 'OPEN' | 'CLOSED';
   records: WeighingRecord[];
   batchId?: string;
-  weighingMode?: WeighingType;
+  weighingMode: WeighingType;
   paymentStatus: 'PENDING' | 'PAID';
-  paymentMethod?: 'CASH' | 'CREDIT';
   payments: Payment[];
   createdBy?: string;
-}
-
-export interface Payment {
-  id: string;
-  amount: number;
-  timestamp: number;
-  note?: string;
-}
-
-export interface Batch {
-  id: string;
-  name: string;
-  createdAt: number;
-  totalCratesLimit: number;
-  status: 'ACTIVE' | 'ARCHIVED';
-  createdBy?: string;
-}
-
-export interface AppConfig {
-  appName: string;
-  companyName: string;
-  logoUrl: string;
-  printerConnected: boolean;
-  scaleConnected: boolean;
-  defaultFullCrateBatch: number;
-  defaultEmptyCrateBatch: number;
-  // Firebase settings
-  cloudEnabled: boolean;
-  firebaseConfig: {
-    apiKey: string;
-    authDomain: string;
-    projectId: string;
-    storageBucket: string;
-    messagingSenderId: string;
-    appId: string;
-    databaseURL: string;
-  };
+  paymentMethod?: 'CASH' | 'CREDIT';
 }

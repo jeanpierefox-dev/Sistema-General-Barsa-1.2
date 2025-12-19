@@ -1,10 +1,9 @@
 
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Batch, WeighingType, UserRole } from '../../types';
-// Fixed: getOrdersByBatch is not exported in storage.ts, using getOrders instead.
-import { getBatches, saveBatch, deleteBatch, getOrders, getUsers } from '../../services/storage';
-import { Plus, Trash2, Edit, Scale, Calendar, Box, Activity, ArrowLeft } from 'lucide-react';
+import { Batch, WeighingType } from '../../types';
+import { getBatches, saveBatch, deleteBatch, getOrders } from '../../services/storage';
+import { Plus, Trash2, Edit, Scale, Box, ArrowLeft, Layers, Activity, TrendingUp } from 'lucide-react';
 import { AuthContext } from '../../App';
 
 const BatchList: React.FC = () => {
@@ -14,133 +13,112 @@ const BatchList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
 
-  useEffect(() => {
-    refresh();
-  }, [user]);
+  useEffect(() => { refresh(); }, [user]);
 
-  const refresh = () => {
-      const allBatches = getBatches();
-      const allUsers = getUsers();
-      
-      if (user?.role === UserRole.ADMIN) {
-          setBatches(allBatches);
-      } else if (user?.role === UserRole.GENERAL) {
-          const subordinateIds = allUsers.filter(u => u.parentId === user.id).map(u => u.id);
-          setBatches(allBatches.filter(b => b.createdBy === user.id || subordinateIds.includes(b.createdBy || '')));
-      } else {
-          const mySupervisorId = user?.parentId;
-          setBatches(allBatches.filter(b => b.createdBy === user?.id || b.createdBy === mySupervisorId));
-      }
-  };
+  const refresh = () => setBatches(getBatches());
 
   const handleSave = () => {
     if (!currentBatch.name || !currentBatch.totalCratesLimit) return;
-    const batch: Batch = {
+    saveBatch({
       id: currentBatch.id || Date.now().toString(),
       name: currentBatch.name,
       totalCratesLimit: Number(currentBatch.totalCratesLimit),
       createdAt: currentBatch.createdAt || Date.now(),
       status: 'ACTIVE',
       createdBy: currentBatch.createdBy || user?.id
-    };
-    saveBatch(batch);
+    } as Batch);
     setShowModal(false);
     refresh();
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('¿Eliminar este lote? Se eliminarán también las pesadas asociadas.')) {
-      deleteBatch(id);
-      refresh();
-    }
-  };
-
-  const canEdit = user?.role === UserRole.ADMIN || user?.role === UserRole.GENERAL;
-
   const BatchCard: React.FC<{ batch: Batch }> = ({ batch }) => {
-    // Fixed: getOrdersByBatch was replaced with manual filtering of getOrders().
     const orders = getOrders().filter(o => o.batchId === batch.id);
-    let totalFullCrates = 0; let totalFullWeight = 0;
-    let totalEmptyCrates = 0; let totalEmptyWeight = 0;
-    let totalMort = 0; let totalMortWeight = 0;
+    let tFull = 0, tEmpty = 0, tMort = 0, tCrates = 0, tRecords = 0;
 
     orders.forEach(order => {
+      tRecords += order.records.length;
       order.records.forEach(r => {
-        if (r.type === 'FULL') { totalFullCrates += r.quantity; totalFullWeight += r.weight; }
-        if (r.type === 'EMPTY') { totalEmptyCrates += r.quantity; totalEmptyWeight += r.weight; }
-        if (r.type === 'MORTALITY') { totalMort += r.quantity; totalMortWeight += r.weight; }
+        if (r.type === 'FULL') { tFull += r.weight; tCrates += r.quantity; }
+        if (r.type === 'EMPTY') { tEmpty += r.weight; }
+        if (r.type === 'MORTALITY') { tMort += r.weight; }
       });
     });
 
-    const isOverLimit = totalFullCrates >= batch.totalCratesLimit;
-    const percent = Math.min((totalFullCrates / batch.totalCratesLimit) * 100, 100);
+    const net = tFull - tEmpty - tMort;
+    const progress = (tCrates / batch.totalCratesLimit) * 100;
 
     return (
-      <div className="bg-white rounded-[2.5rem] shadow-lg border-2 border-slate-100 hover:shadow-2xl hover:border-blue-400 transition-all duration-300 overflow-hidden flex flex-col min-h-[460px] relative group">
-          <div className="bg-slate-900 p-6 flex justify-between items-start">
-             <div className="flex items-center space-x-4">
-                 <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-lg">
-                     <Box size={24} />
-                 </div>
-                 <div className="overflow-hidden">
-                     <h3 className="font-black text-white text-lg leading-tight uppercase tracking-tight truncate max-w-[150px]">{batch.name}</h3>
-                     <p className="text-slate-400 text-[10px] font-black flex items-center mt-1 uppercase tracking-widest">
-                         <Calendar size={12} className="mr-1"/> {new Date(batch.createdAt).toLocaleDateString()}
-                     </p>
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-xl transition-all flex flex-col overflow-hidden group">
+          {/* Cabecera de Tarjeta */}
+          <div className="bg-slate-900 p-5 flex justify-between items-center border-b border-white/5">
+             <div className="flex items-center space-x-3">
+                 <div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-lg shadow-blue-600/20 group-hover:scale-110 transition-transform"><Layers size={20} /></div>
+                 <div>
+                    <h3 className="font-black text-white text-sm uppercase tracking-tight leading-none">{batch.name}</h3>
+                    <p className="text-[8px] font-black text-slate-400 uppercase mt-1.5 tracking-[0.2em]">{new Date(batch.createdAt).toLocaleDateString()}</p>
                  </div>
              </div>
-             {canEdit && (
-                <div className="flex space-x-2">
-                    <button onClick={() => { setCurrentBatch(batch); setShowModal(true); }} className="bg-slate-800 p-2 rounded-xl text-slate-300 hover:text-white transition-colors"><Edit size={16} /></button>
-                    <button onClick={() => handleDelete(batch.id)} className="bg-slate-800 p-2 rounded-xl text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-                </div>
-             )}
+             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => { setCurrentBatch(batch); setShowModal(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><Edit size={16}/></button>
+                <button onClick={() => { if(confirm('¿Eliminar lote?')) { deleteBatch(batch.id); refresh(); } }} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"><Trash2 size={16}/></button>
+             </div>
           </div>
 
-          <div className="p-8 flex-1 flex flex-col justify-between">
-              <div>
-                  <div className="mb-6">
-                      <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-3">
-                          <span className="text-slate-500">Capacidad Ocupada</span>
-                          <span className={`${isOverLimit ? 'text-red-600' : 'text-blue-600'}`}>{totalFullCrates} / {batch.totalCratesLimit} Jabas</span>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden border border-slate-50 shadow-inner">
-                          <div className={`h-full rounded-full transition-all duration-700 ${isOverLimit ? 'bg-red-500' : 'bg-gradient-to-r from-blue-600 to-blue-400'}`} style={{ width: `${percent}%` }}></div>
+          <div className="p-5 space-y-5">
+              {/* Grid de Totales de Peso */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-slate-50 py-3 px-1 rounded-2xl border border-slate-100">
+                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1 tracking-wider">Bruto</p>
+                      <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">{tFull.toFixed(1)} <span className="text-[9px] font-normal text-slate-400">KG</span></p>
+                  </div>
+                  <div className="bg-slate-50 py-3 px-1 rounded-2xl border border-slate-100">
+                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1 tracking-wider">Tara</p>
+                      <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">{tEmpty.toFixed(1)} <span className="text-[9px] font-normal text-slate-400">KG</span></p>
+                  </div>
+                  <div className="bg-emerald-50 py-3 px-1 rounded-2xl border border-emerald-100">
+                      <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-wider">Neto</p>
+                      <p className="text-sm font-black text-emerald-700 font-mono tracking-tighter">{net.toFixed(1)} <span className="text-[9px] font-normal text-emerald-400">KG</span></p>
+                  </div>
+              </div>
+
+              {/* Estadísticas Secundarias */}
+              <div className="flex justify-between items-center bg-slate-50/50 px-4 py-3 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2">
+                      <Activity size={14} className="text-blue-500"/>
+                      <div className="flex flex-col">
+                          <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Registros</span>
+                          <span className="text-[11px] font-black text-slate-800">{tRecords} Pesadas</span>
                       </div>
                   </div>
-
-                  <div className="grid grid-cols-1 gap-3 mb-4">
-                      <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl text-center">
-                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pollos Estimados</p>
-                         <p className="text-2xl font-black text-slate-900 leading-none">{(totalFullCrates * 9) - totalMort}</p>
-                      </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                      <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100">
-                          <p className="text-[9px] font-black text-blue-500 uppercase tracking-tighter mb-1">Llenas</p>
-                          <p className="font-black text-slate-800 text-xl leading-none">{totalFullCrates}</p>
-                          <p className="text-[9px] text-slate-500 font-bold mt-2">{totalFullWeight.toFixed(1)} kg</p>
-                      </div>
-                      <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100">
-                          <p className="text-[9px] font-black text-orange-500 uppercase tracking-tighter mb-1">Vacías</p>
-                          <p className="font-black text-slate-800 text-xl leading-none">{totalEmptyCrates}</p>
-                           <p className="text-[9px] text-slate-500 font-bold mt-2">{totalEmptyWeight.toFixed(1)} kg</p>
-                      </div>
-                      <div className="bg-red-50 p-4 rounded-3xl border border-red-100">
-                          <p className="text-[9px] font-black text-red-500 uppercase tracking-tighter mb-1">Merma</p>
-                          <p className="font-black text-slate-800 text-xl leading-none">{totalMort}</p>
-                           <p className="text-[9px] text-slate-500 font-bold mt-2">{totalMortWeight.toFixed(1)} kg</p>
+                  <div className="w-px h-6 bg-slate-200"></div>
+                  <div className="flex items-center gap-2">
+                      <Scale size={14} className="text-emerald-500"/>
+                      <div className="flex flex-col">
+                          <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Jabas</span>
+                          <span className="text-[11px] font-black text-slate-800">{tCrates} / {batch.totalCratesLimit}</span>
                       </div>
                   </div>
               </div>
 
+              {/* Barra de Progreso Avanzada */}
+              <div className="space-y-1.5">
+                  <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase tracking-[0.15em]">
+                      <span>Progreso del Lote</span>
+                      <span>{Math.round(progress)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden shadow-inner p-0.5">
+                      <div className="bg-blue-600 h-full rounded-full transition-all duration-1000 ease-out relative" style={{ width: `${Math.min(progress, 100)}%` }}>
+                          <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* Botón de Acción Principal */}
               <button 
                 onClick={() => navigate(`/weigh/${WeighingType.BATCH}/${batch.id}`)}
-                className="w-full mt-8 bg-blue-950 hover:bg-blue-900 text-white py-5 rounded-2xl text-xs font-black flex items-center justify-center transition-all shadow-xl active:scale-95 uppercase tracking-widest"
+                className="w-full bg-slate-900 hover:bg-blue-600 text-white py-4 rounded-2xl text-[10px] font-black flex items-center justify-center transition-all uppercase tracking-[0.2em] shadow-lg shadow-slate-200 hover:shadow-blue-500/20 active:scale-95"
               >
-                <Scale size={20} className="mr-3" />
-                Abrir Campaña
+                <Scale size={18} className="mr-2" /> Entrar al Pesaje
               </button>
           </div>
       </div>
@@ -148,69 +126,89 @@ const BatchList: React.FC = () => {
   };
 
   return (
-    <div className="pb-10">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-6">
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-3xl border border-slate-200 shadow-sm gap-4">
         <div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Control de Lotes</h2>
-            <p className="text-slate-500 font-medium">Administre sus campañas de producción activa</p>
+            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Archivo de Lotes</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-1 flex items-center gap-2">
+                <TrendingUp size={12} className="text-blue-500" /> Monitoreo de Producción en Vivo
+            </p>
         </div>
-        <div className="flex gap-4 w-full sm:w-auto">
-            <button 
-                onClick={() => navigate('/')}
-                className="flex-1 sm:flex-none bg-white border-2 border-slate-100 text-slate-600 px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
-            >
-                <ArrowLeft size={18}/> Regresar
+        <div className="flex gap-2 w-full md:w-auto">
+            <button onClick={() => navigate('/')} className="flex-1 md:flex-none bg-slate-50 border border-slate-200 p-3.5 rounded-2xl hover:bg-white transition-all shadow-sm active:scale-95">
+                <ArrowLeft size={22} className="text-slate-600 mx-auto" />
             </button>
-            {canEdit && (
-                <button 
-                onClick={() => { setCurrentBatch({}); setShowModal(true); }}
-                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl flex items-center justify-center transition-all shadow-xl font-black text-xs uppercase tracking-widest active:scale-95"
-                >
-                <Plus size={20} className="mr-2" />
-                Nuevo Lote
-                </button>
-            )}
+            <button 
+                onClick={() => { setCurrentBatch({}); setShowModal(true); }} 
+                className="flex-[3] md:flex-none bg-blue-600 text-white px-8 py-3.5 rounded-2xl font-black text-xs uppercase shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+                <Plus size={20}/> Nuevo Lote de Campaña
+            </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {batches.map(b => <BatchCard key={b.id} batch={b} />)}
+        
         {batches.length === 0 && (
-            <div className="col-span-full py-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400">
-                <Box size={64} className="mb-4 opacity-20"/>
-                <p className="font-black text-xs uppercase tracking-widest">No hay lotes registrados</p>
-            </div>
+          <div className="col-span-full py-24 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center space-y-4">
+             <div className="bg-slate-50 p-6 rounded-full text-slate-200 shadow-inner">
+                 <Box size={56} />
+             </div>
+             <div className="max-w-xs">
+                <p className="text-slate-900 font-black uppercase text-sm tracking-tight mb-2">Sin Lotes Registrados</p>
+                <p className="text-slate-400 font-medium text-[11px] leading-relaxed">Inicie una nueva campaña de producción presionando el botón superior.</p>
+             </div>
+          </div>
         )}
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-blue-950/60 flex items-center justify-center p-4 z-50 backdrop-blur-md">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl p-10 w-full max-w-sm border border-white/20">
-            <h3 className="text-2xl font-black mb-8 text-slate-900 tracking-tight uppercase">{currentBatch.id ? 'Editar Lote' : 'Nuevo Lote'}</h3>
-            <div className="space-y-6">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Nombre del Lote</label>
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-[100] backdrop-blur-md animate-fade-in">
+          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-sm shadow-2xl border border-white/20">
+            <div className="flex flex-col items-center mb-8">
+                <div className="bg-blue-50 p-4 rounded-3xl text-blue-600 mb-4 shadow-inner">
+                    <Layers size={32}/>
+                </div>
+                <h3 className="text-xl font-black uppercase text-center text-slate-900 tracking-tight">Parámetros de Lote</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Configuración de Nueva Campaña</p>
+            </div>
+            
+            <div className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Identificador del Lote</label>
                 <input 
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 font-bold text-slate-900 focus:border-blue-500 outline-none transition-all"
-                  value={currentBatch.name || ''}
-                  onChange={e => setCurrentBatch({...currentBatch, name: e.target.value})}
-                  placeholder="Ej. CAMPAÑA 2024-A"
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 font-black uppercase text-sm focus:border-blue-500 outline-none transition-all shadow-sm placeholder:text-slate-300" 
+                    value={currentBatch.name || ''} 
+                    onChange={e => setCurrentBatch({...currentBatch, name: e.target.value.toUpperCase()})} 
+                    placeholder="EJE. AGOSTO-01" 
                 />
               </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Capacidad de Jabas</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Meta de Jabas (Límite)</label>
                 <input 
-                  type="number"
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 font-bold text-slate-900 focus:border-blue-500 outline-none transition-all"
-                  value={currentBatch.totalCratesLimit || ''}
-                  onChange={e => setCurrentBatch({...currentBatch, totalCratesLimit: Number(e.target.value)})}
-                  placeholder="Ej. 1000"
+                    type="number" 
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 font-black text-sm focus:border-blue-500 outline-none transition-all shadow-sm" 
+                    value={currentBatch.totalCratesLimit || ''} 
+                    onChange={e => setCurrentBatch({...currentBatch, totalCratesLimit: Number(e.target.value)})} 
+                    placeholder="0" 
                 />
               </div>
             </div>
+            
             <div className="mt-10 flex flex-col gap-3">
-              <button onClick={handleSave} className="w-full bg-blue-950 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-blue-900 transition-all uppercase text-xs tracking-widest active:scale-95">GUARDAR LOTE</button>
-              <button onClick={() => setShowModal(false)} className="w-full text-slate-400 font-bold py-2 hover:text-slate-600 transition-colors text-xs uppercase tracking-widest">Cancelar</button>
+              <button 
+                onClick={handleSave} 
+                className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"
+              >
+                Guardar Configuración
+              </button>
+              <button 
+                onClick={() => setShowModal(false)} 
+                className="w-full text-slate-400 font-black py-2 uppercase text-[10px] tracking-widest hover:text-slate-600 transition-colors"
+              >
+                Cancelar Operación
+              </button>
             </div>
           </div>
         </div>
